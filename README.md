@@ -10,6 +10,7 @@ Built by the **r/antinatalism** mod team to keep up with high-risk, fast-moving 
 
 - Reviews new posts (`PostSubmit`)
 - Reviews reported comments (`CommentReport`) only (not every new comment, to reduce API costs)
+- For reported comments, includes parent-chain + post context so replies are judged in conversation
 - Matches content to one removal reason (or none)
 
 When a violation is detected, it:
@@ -36,6 +37,19 @@ For posts with images, the bot can include vision analysis in the decision:
 - Retries automatically if an image URL fails
 - Falls back to text-only review if needed
 
+## Comment Thread Context (for Mod Decisions)
+
+When a reported comment is reviewed, the bot now builds a structured thread snapshot for the model:
+
+- The **target comment** (the only item being moderated)
+- Parent comments in order (parent, grandparent, great-grandparent, etc.)
+- The top-of-thread **post context** (title + body, or URL if no body)
+- An anonymized participant label (for example `User_1`, `User_2`) on each contribution
+
+If the same Reddit account appears multiple times in the chain, it keeps the same anonymized label so the model can follow who said what without seeing raw usernames.
+
+For very deep chains, the bot keeps the most useful context (root + latest ancestors) and may omit middle ancestors for prompt size.
+
 ## Before You Install
 
 Please make sure:
@@ -49,6 +63,8 @@ Please make sure:
 To make a decision, the bot may send:
 
 - Post title/body or comment text
+- For reported comments: target comment + parent-chain context + top-level post context
+- Anonymized participant labels for context tracking (not raw commenter usernames/IDs in this metadata layer)
 - Your Removal Reasons (titles and messages)
 - For image posts, up to a few Reddit image URLs for vision analysis
 

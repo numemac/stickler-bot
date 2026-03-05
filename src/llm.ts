@@ -59,6 +59,8 @@ export function buildLLMPrompt(
   return [
     "Task: classify policy violation for one Reddit contribution.",
     "If images are attached, evaluate textual and visual content together.",
+    "The submission may contain structured thread context for comments: target comment, parent chain, and top-level post context.",
+    "If thread context is present, use it for meaning and intent, but apply enforcement to the target comment only.",
     "Use only the removal reasons provided below as the decision criteria.",
     "",
     "UNTRUSTED_INPUT_START",
