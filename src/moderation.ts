@@ -22,6 +22,7 @@ import {
 import type { Contribution, ContributionType } from "./types.js";
 
 const inFlightModerations = new Set<string>();
+const triageModmailSentAt = new Map<string, number>();
 const MAX_COMMENT_CONTEXT_ANCESTORS_TO_FETCH = 24;
 const MAX_COMMENT_CONTEXT_ANCESTORS_IN_PROMPT = 8;
 const MAX_TARGET_COMMENT_CONTEXT_CHARS = 900;
@@ -29,6 +30,10 @@ const MAX_ANCESTOR_COMMENT_CONTEXT_CHARS = 320;
 const MAX_POST_CONTEXT_TITLE_CHARS = 220;
 const MAX_POST_CONTEXT_BODY_CHARS = 700;
 const MAX_POST_CONTEXT_URL_CHARS = 320;
+const MAX_TRIAGE_MODMAIL_SUBJECT_CHARS = 100;
+const MAX_TRIAGE_MODMAIL_BODY_CHARS = 8_000;
+const TRIAGE_MODMAIL_COOLDOWN_MS = 6 * 60 * 60 * 1_000;
+const TRIAGE_MODMAIL_CACHE_MAX_ENTRIES = 5_000;
 
 type PromptContextComment = {
   id: string;
@@ -53,6 +58,8 @@ type AncestorContextEntry = {
   distanceFromTarget: number;
 };
 
+type TriageSkipReason = "needs-human-review" | "below-threshold";
+
 /**
  * Runs end-to-end moderation for a single post or comment.
  */
@@ -60,7 +67,8 @@ export async function moderateContribution(
   reddit: RedditAPIClient,
   openaiApiKey: string,
   contributionId: string,
-  type: ContributionType
+  type: ContributionType,
+  autoEnforceConfidenceThreshold: number
 ): Promise<boolean> {
   const moderationKey = `${type}:${contributionId}`;
   if (inFlightModerations.has(moderationKey)) {
@@ -128,9 +136,14 @@ export async function moderateContribution(
       return false;
     }
 
-    const { removalReasonIndex, justification } = llmDecision;
+    const { removalReasonIndex, justification, confidence, needsHumanReview } =
+      llmDecision;
     if (removalReasonIndex === null) {
-      console.log(`No violation detected for ${moderationKey}`);
+      console.log(
+        `No violation detected for ${moderationKey} (confidence=${formatConfidence(
+          confidence
+        )}, needsHumanReview=${needsHumanReview})`
+      );
       return true;
     }
 
@@ -140,6 +153,46 @@ export async function moderateContribution(
         `LLM returned out-of-range removalReasonIndex=${removalReasonIndex} for ${moderationKey}`
       );
       return false;
+    }
+
+    if (needsHumanReview) {
+      await sendTriageModmail(
+        reddit,
+        contribution,
+        type,
+        violatedReason,
+        justification,
+        confidence,
+        autoEnforceConfidenceThreshold,
+        needsHumanReview,
+        "needs-human-review"
+      );
+      console.log(
+        `Flagged ${moderationKey} for human review: reason [${removalReasonIndex}] ${violatedReason.title} (confidence=${formatConfidence(
+          confidence
+        )}, threshold=${formatConfidence(autoEnforceConfidenceThreshold)})`
+      );
+      return true;
+    }
+
+    if (confidence < autoEnforceConfidenceThreshold) {
+      await sendTriageModmail(
+        reddit,
+        contribution,
+        type,
+        violatedReason,
+        justification,
+        confidence,
+        autoEnforceConfidenceThreshold,
+        needsHumanReview,
+        "below-threshold"
+      );
+      console.log(
+        `Not auto-enforcing ${moderationKey}: confidence ${formatConfidence(
+          confidence
+        )} below threshold ${formatConfidence(autoEnforceConfidenceThreshold)} for reason [${removalReasonIndex}] ${violatedReason.title}`
+      );
+      return true;
     }
 
     const replyText = buildRemovalReply(
@@ -177,6 +230,156 @@ export async function moderateContribution(
 }
 
 /**
+ * Formats confidence values as fixed precision percentages for logs.
+ */
+function formatConfidence(confidence: number): string {
+  return `${(confidence * 100).toFixed(1)}%`;
+}
+
+/**
+ * Sends a modmail triage notice when auto-enforcement is skipped.
+ */
+async function sendTriageModmail(
+  reddit: RedditAPIClient,
+  contribution: Contribution,
+  type: ContributionType,
+  reason: RemovalReason,
+  justification: string,
+  confidence: number,
+  autoEnforceConfidenceThreshold: number,
+  needsHumanReview: boolean,
+  skipReason: TriageSkipReason
+): Promise<void> {
+  const safeSubredditName = toSingleLine(
+    sanitizeUntrustedText(contribution.subredditName, 128)
+  );
+  const safeReasonTitle = toSingleLine(sanitizeUntrustedText(reason.title, 256));
+  const safeAuthorName = toSingleLine(sanitizeUntrustedText(contribution.authorName, 128));
+  const safeJustification = sanitizeModelJustification(justification, 1_200);
+  const contributionUrl = toAbsoluteRedditUrl(contribution.permalink);
+  const skipReasonText =
+    skipReason === "needs-human-review"
+      ? "Model requested human review"
+      : "Confidence below auto-enforcement threshold";
+  const triageKey = `${type}:${contribution.id}`;
+
+  if (hasRecentTriageModmail(triageKey)) {
+    console.log(
+      `Skipping duplicate triage modmail for ${triageKey} (cooldown active)`
+    );
+    return;
+  }
+
+  const subject = truncate(
+    toSingleLine(
+      sanitizeUntrustedText(
+        `[AI Triage] ${type} ${contribution.id} • ${formatConfidence(confidence)} • ${skipReasonText}`,
+        200
+      )
+    ),
+    MAX_TRIAGE_MODMAIL_SUBJECT_CHARS
+  );
+
+  const body = truncate(
+    sanitizeUntrustedText(
+      [
+        "AI auto-enforcement was skipped. Please review this item.",
+        "",
+        `- **Skip reason:** ${skipReasonText}`,
+        `- **Subreddit:** r/${safeSubredditName}`,
+        `- **Contribution:** ${type} ${contribution.id}`,
+        `- **Author:** u/${safeAuthorName}`,
+        `- **Link:** ${contributionUrl}`,
+        `- **Suggested rule:** ${safeReasonTitle}`,
+        `- **Confidence:** ${formatConfidence(confidence)} (threshold ${formatConfidence(
+          autoEnforceConfidenceThreshold
+        )})`,
+        `- **needsHumanReview:** ${needsHumanReview}`,
+        "",
+        "**Model justification**",
+        safeJustification,
+      ].join("\n"),
+      MAX_TRIAGE_MODMAIL_BODY_CHARS
+    ),
+    MAX_TRIAGE_MODMAIL_BODY_CHARS
+  );
+
+  try {
+    await reddit.modMail.createConversation({
+      subredditName: safeSubredditName,
+      subject,
+      body,
+      to: null,
+    });
+    rememberTriageModmail(triageKey);
+    console.log(
+      `Created modmail triage conversation for ${type}:${contribution.id} (${skipReason})`
+    );
+  } catch (error) {
+    console.error(
+      `Failed to create modmail triage conversation for ${type}:${contribution.id}`,
+      error
+    );
+  }
+}
+
+/**
+ * Returns true when a triage modmail was recently sent for this contribution.
+ */
+function hasRecentTriageModmail(triageKey: string): boolean {
+  const now = Date.now();
+  pruneTriageModmailCache(now);
+
+  const lastSentAt = triageModmailSentAt.get(triageKey);
+  return lastSentAt != null && now - lastSentAt < TRIAGE_MODMAIL_COOLDOWN_MS;
+}
+
+/**
+ * Records a triage modmail send time for duplicate suppression.
+ */
+function rememberTriageModmail(triageKey: string): void {
+  const now = Date.now();
+  triageModmailSentAt.set(triageKey, now);
+  pruneTriageModmailCache(now);
+}
+
+/**
+ * Removes expired triage cache entries and bounds map growth.
+ */
+function pruneTriageModmailCache(now: number): void {
+  for (const [key, sentAt] of triageModmailSentAt.entries()) {
+    if (now - sentAt >= TRIAGE_MODMAIL_COOLDOWN_MS) {
+      triageModmailSentAt.delete(key);
+    }
+  }
+
+  while (triageModmailSentAt.size > TRIAGE_MODMAIL_CACHE_MAX_ENTRIES) {
+    const oldestEntry = triageModmailSentAt.entries().next().value;
+    if (oldestEntry == null) {
+      break;
+    }
+
+    triageModmailSentAt.delete(oldestEntry[0]);
+  }
+}
+
+/**
+ * Returns an absolute Reddit URL for a contribution permalink.
+ */
+function toAbsoluteRedditUrl(permalink: string): string {
+  const trimmed = permalink.trim();
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("/")) {
+    return `https://www.reddit.com${trimmed}`;
+  }
+
+  return `https://www.reddit.com/${trimmed}`;
+}
+
+/**
  * Fetches a contribution and normalizes it into a shared structure for prompt
  * generation and moderation decisions.
  */
@@ -203,6 +406,7 @@ async function fetchContribution(
       id: post.id,
       authorName: post.authorName,
       subredditName: sanitizeUntrustedText(post.subredditName, 128),
+      permalink: sanitizeUntrustedText(post.permalink, 512),
       contentForPrompt: sanitizeUntrustedText(
         postParts.join("\n\n"),
         MAX_CONTENT_CHARS
@@ -231,6 +435,7 @@ async function fetchContribution(
     id: comment.id,
     authorName: comment.authorName,
     subredditName: sanitizeUntrustedText(comment.subredditName, 128),
+    permalink: sanitizeUntrustedText(comment.permalink, 512),
     contentForPrompt: commentContextForPrompt,
     imageUrls: [],
     distinguishedBy: comment.distinguishedBy,

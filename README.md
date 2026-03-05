@@ -12,6 +12,7 @@ Built by the **r/antinatalism** mod team to keep up with high-risk, fast-moving 
 - Reviews reported comments (`CommentReport`) only (not every new comment, to reduce API costs)
 - For reported comments, includes parent-chain + post context so replies are judged in conversation
 - Matches content to one removal reason (or none)
+- Uses model confidence + human-review flag before auto-removal
 
 When a violation is detected, it:
 
@@ -19,6 +20,24 @@ When a violation is detected, it:
 - Removes the item
 
 If no violation is detected, it does nothing.
+
+## Confidence and Human Review Gate
+
+For each moderation decision, the model now returns:
+
+- `confidence` (0 to 1)
+- `needsHumanReview` (`true` or `false`)
+
+The bot only auto-removes when all conditions are true:
+
+- A removal reason is selected
+- `needsHumanReview` is `false`
+- `confidence` is greater than or equal to your configured threshold
+
+If confidence is below threshold or `needsHumanReview` is `true`, the bot:
+
+- Skips auto-enforcement
+- Opens an internal Modmail triage thread with a link, suggested rule, confidence, and model justification
 
 ## What Users See on Removal
 
@@ -68,6 +87,13 @@ To make a decision, the bot may send:
 - Your Removal Reasons (titles and messages)
 - For image posts, up to a few Reddit image URLs for vision analysis
 
+Model output used for enforcement includes:
+
+- `removalReasonIndex`
+- `justification`
+- `confidence`
+- `needsHumanReview`
+
 If you moderate sensitive topics, review this carefully before enabling automation.
 
 ## Costs and Budgeting
@@ -79,6 +105,7 @@ OpenAI API calls cost money. You should estimate expected volume (new posts + co
 Install via the Reddit Developers App platform, then set the installation setting:
 
 - `openai-api-key` (secret string)
+- `auto-enforce-confidence-threshold` (number from 0 to 1, default `0.8`)
 
 Without this setting, the bot cannot classify content.
 
@@ -91,7 +118,7 @@ The bot includes protections against prompt-injection and text abuse:
 - Validates model output format before acting
 - Sanitizes model-generated text before posting user-visible replies
 - Skips bot-authored, already removed, and distinguished items
-- Only performs two moderation actions: reply + remove
+- Uses these actions only: reply + remove for auto-enforced violations, and internal Modmail triage for skipped enforcement cases
 
 ## Current Scope and Limitations
 

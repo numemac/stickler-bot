@@ -6,7 +6,11 @@
  */
 import { Devvit, SettingScope } from "@devvit/public-api";
 
-import { OPENAI_API_KEY_SETTING } from "./constants.js";
+import {
+  AUTO_ENFORCE_CONFIDENCE_THRESHOLD_SETTING,
+  DEFAULT_AUTO_ENFORCE_CONFIDENCE_THRESHOLD,
+  OPENAI_API_KEY_SETTING,
+} from "./constants.js";
 import { moderateContribution } from "./moderation.js";
 
 Devvit.configure({
@@ -23,6 +27,22 @@ Devvit.addSettings([
     label: "OpenAI API Key",
     defaultValue: "",
     scope: SettingScope.Installation,
+  },
+  {
+    name: AUTO_ENFORCE_CONFIDENCE_THRESHOLD_SETTING,
+    type: "number",
+    label: "Auto-Enforce Confidence Threshold (0 to 1)",
+    defaultValue: DEFAULT_AUTO_ENFORCE_CONFIDENCE_THRESHOLD,
+    scope: SettingScope.Installation,
+    onValidate({ value }) {
+      if (value == null) {
+        return;
+      }
+
+      if (value < 0 || value > 1) {
+        return "Threshold must be between 0 and 1.";
+      }
+    },
   },
 ]);
 
@@ -42,7 +62,14 @@ Devvit.addTrigger({
     }
 
     const openaiApiKey = await readOpenAIApiKey(context);
-    await moderateContribution(context.reddit, openaiApiKey, post.id, "post");
+    const autoEnforceThreshold = await readAutoEnforceConfidenceThreshold(context);
+    await moderateContribution(
+      context.reddit,
+      openaiApiKey,
+      post.id,
+      "post",
+      autoEnforceThreshold
+    );
   },
 });
 
@@ -62,7 +89,14 @@ Devvit.addTrigger({
     }
 
     const openaiApiKey = await readOpenAIApiKey(context);
-    await moderateContribution(context.reddit, openaiApiKey, comment.id, "comment");
+    const autoEnforceThreshold = await readAutoEnforceConfidenceThreshold(context);
+    await moderateContribution(
+      context.reddit,
+      openaiApiKey,
+      comment.id,
+      "comment",
+      autoEnforceThreshold
+    );
   },
 });
 
@@ -72,6 +106,37 @@ Devvit.addTrigger({
 async function readOpenAIApiKey(context: { settings: { get(name: string): Promise<unknown> } }): Promise<string> {
   const rawValue = await context.settings.get(OPENAI_API_KEY_SETTING);
   return typeof rawValue === "string" ? rawValue : "";
+}
+
+/**
+ * Reads and normalizes the auto-enforcement confidence threshold setting.
+ */
+async function readAutoEnforceConfidenceThreshold(context: {
+  settings: { get(name: string): Promise<unknown> };
+}): Promise<number> {
+  const rawValue = await context.settings.get(
+    AUTO_ENFORCE_CONFIDENCE_THRESHOLD_SETTING
+  );
+
+  const parsed =
+    typeof rawValue === "number"
+      ? rawValue
+      : typeof rawValue === "string"
+        ? Number(rawValue)
+        : DEFAULT_AUTO_ENFORCE_CONFIDENCE_THRESHOLD;
+
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_AUTO_ENFORCE_CONFIDENCE_THRESHOLD;
+  }
+
+  if (parsed < 0) {
+    return 0;
+  }
+  if (parsed > 1) {
+    return 1;
+  }
+
+  return parsed;
 }
 
 export default Devvit;
