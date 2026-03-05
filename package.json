@@ -9,7 +9,7 @@
     "dev": "dotenv -e .env -- devvit playtest",
     "login": "devvit login",
     "launch": "devvit publish",
-    "type-check": "tsc --build"
+    "type-check": "tsc --build --force --pretty false"
   },
   "dependencies": {
     "@devvit/public-api": "0.12.13",
