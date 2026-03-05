@@ -1,0 +1,8 @@
+name: stickler-bot
+settings:
+  subreddit:
+    openai-api-key:
+      type: string
+      label: "OpenAI API Key"
+      defaultValue: ""
+      isSecret: true
