@@ -20,6 +20,7 @@ export type Contribution = {
   permalink: string;
   contentForPrompt: string;
   imageUrls: string[];
+  skipModerationReason?: string;
   distinguishedBy?: string;
   removed: boolean;
 };

@@ -137,3 +137,48 @@ test("createParticipantLabeler is stable for same user and distinct for others",
   assert.equal(noIdNameLabelOne, noIdNameLabelTwo);
   assert.notEqual(deletedLabelOne, deletedLabelTwo);
 });
+
+test("hasSubstantialVideoBodyText enforces minimum trimmed body length", () => {
+  assert.equal(__moderationTestables.hasSubstantialVideoBodyText(undefined), false);
+  assert.equal(__moderationTestables.hasSubstantialVideoBodyText(""), false);
+  assert.equal(
+    __moderationTestables.hasSubstantialVideoBodyText("x".repeat(199)),
+    false
+  );
+  assert.equal(
+    __moderationTestables.hasSubstantialVideoBodyText("x".repeat(200)),
+    true
+  );
+  assert.equal(
+    __moderationTestables.hasSubstantialVideoBodyText(`  ${"x".repeat(200)}  `),
+    true
+  );
+});
+
+test("isRedditVideoUploadPost detects reddit-hosted videos", () => {
+  assert.equal(
+    __moderationTestables.isRedditVideoUploadPost({
+      url: "https://v.redd.it/abc123",
+      secureMedia: undefined,
+    }),
+    true
+  );
+
+  assert.equal(
+    __moderationTestables.isRedditVideoUploadPost({
+      url: "https://www.reddit.com/r/test/comments/abc123/post",
+      secureMedia: {
+        redditVideo: { fallbackUrl: "https://v.redd.it/abc123/DASH_720.mp4" },
+      },
+    }),
+    true
+  );
+
+  assert.equal(
+    __moderationTestables.isRedditVideoUploadPost({
+      url: "https://i.redd.it/example.jpeg",
+      secureMedia: undefined,
+    }),
+    false
+  );
+});

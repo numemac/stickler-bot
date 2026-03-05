@@ -72,6 +72,7 @@ Quick quality test before enabling automation:
 - Reviews **new posts** automatically.
 - Reviews **reported comments** (not every new comment).
 - Can analyze Reddit-hosted images on posts when available.
+- Skips Reddit-hosted video uploads unless the post includes substantial body text (200+ characters).
 
 ### Human-Review Safety Gate
 
