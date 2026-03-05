@@ -934,3 +934,13 @@ function isLikelyImageUrl(url: URL): boolean {
 
   return false;
 }
+
+/**
+ * Exported internals for focused unit tests.
+ */
+export const __moderationTestables = {
+  buildCommentContextForPrompt,
+  selectAncestorsForPrompt,
+  createParticipantLabeler,
+  buildParticipantKey,
+};
