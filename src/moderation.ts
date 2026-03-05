@@ -805,7 +805,7 @@ function buildRemovalReply(
   );
 
   const reply = [
-    `Hi there — your ${type} has been removed.`,
+    `Your ${type} has been removed.`,
     "",
     `**Rule violated:** ${safeReasonTitle}`,
     "",
