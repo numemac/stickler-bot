@@ -14,6 +14,6 @@ export const DEFAULT_AUTO_ENFORCE_CONFIDENCE_THRESHOLD = 0.8;
 
 export const MAX_CONTENT_CHARS = 6_000;
 export const MAX_REASON_CHARS = 1_200;
-export const MAX_JUSTIFICATION_CHARS = 600;
+export const MAX_JUSTIFICATION_CHARS = 900;
 export const MAX_REPLY_CHARS = 9_000;
 export const MAX_VISION_IMAGES = 4;
