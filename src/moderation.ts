@@ -36,6 +36,7 @@ const MAX_TRIAGE_MODMAIL_SUBJECT_CHARS = 100;
 const MAX_TRIAGE_MODMAIL_BODY_CHARS = 8_000;
 const TRIAGE_MODMAIL_COOLDOWN_MS = 6 * 60 * 60 * 1_000;
 const TRIAGE_MODMAIL_CACHE_MAX_ENTRIES = 5_000;
+const MIN_VIDEO_POST_BODY_CHARS_FOR_MODERATION = 200;
 
 type PromptContextComment = {
   id: string;
@@ -108,6 +109,13 @@ export async function moderateContribution(
 
     if (contribution.authorName.toLowerCase() === botUsername) {
       console.log(`Skipping ${moderationKey} because it was created by the bot.`);
+      return true;
+    }
+
+    if (contribution.skipModerationReason != null) {
+      console.log(
+        `Skipping ${moderationKey}: ${contribution.skipModerationReason}`
+      );
       return true;
     }
 
@@ -401,6 +409,8 @@ async function fetchContribution(
       return null;
     }
 
+    const isRedditVideoUpload = isRedditVideoUploadPost(post);
+    const hasSubstantialBodyText = hasSubstantialVideoBodyText(post.body);
     const postParts = [`Title: ${post.title}`];
     if (post.body != null && post.body.trim().length > 0) {
       postParts.push(`Body: ${post.body.trim()}`);
@@ -418,6 +428,10 @@ async function fetchContribution(
         MAX_CONTENT_CHARS
       ),
       imageUrls: extractPostImageUrls(post),
+      skipModerationReason:
+        isRedditVideoUpload && !hasSubstantialBodyText
+          ? `video upload without substantial body text (${MIN_VIDEO_POST_BODY_CHARS_FOR_MODERATION}+ body characters required)`
+          : undefined,
       distinguishedBy: post.distinguishedBy,
       removed: post.removed,
     };
@@ -820,6 +834,47 @@ function buildRemovalReply(
 }
 
 /**
+ * Returns true when a post appears to be a Reddit-hosted video upload.
+ */
+function isRedditVideoUploadPost(post: {
+  url: string;
+  secureMedia?: { redditVideo?: unknown } | undefined;
+}): boolean {
+  if (post.secureMedia?.redditVideo != null) {
+    return true;
+  }
+
+  return isVRedditUrl(post.url);
+}
+
+/**
+ * Returns true when post body text is long enough to provide meaningful context.
+ */
+function hasSubstantialVideoBodyText(body: string | undefined): boolean {
+  return (body?.trim().length ?? 0) >= MIN_VIDEO_POST_BODY_CHARS_FOR_MODERATION;
+}
+
+/**
+ * Returns true when a URL host is v.redd.it.
+ */
+function isVRedditUrl(urlValue: string): boolean {
+  const trimmed = urlValue.trim();
+  if (trimmed.length === 0) {
+    return false;
+  }
+
+  const withScheme = trimmed.startsWith("//") ? `https:${trimmed}` : trimmed;
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    return false;
+  }
+
+  return parsed.hostname.toLowerCase() === "v.redd.it";
+}
+
+/**
  * Extracts and normalizes candidate image URLs from a post for vision analysis.
  */
 function extractPostImageUrls(post: {
@@ -952,4 +1007,6 @@ export const __moderationTestables = {
   selectAncestorsForPrompt,
   createParticipantLabeler,
   buildParticipantKey,
+  hasSubstantialVideoBodyText,
+  isRedditVideoUploadPost,
 };
