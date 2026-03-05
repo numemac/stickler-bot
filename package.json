@@ -9,7 +9,8 @@
     "dev": "dotenv -e .env -- devvit playtest",
     "login": "devvit login",
     "launch": "devvit publish",
-    "type-check": "tsc --build --force --pretty false"
+    "type-check": "tsc --build --force --pretty false",
+    "test:unit": "tsc -p tsconfig.test.json --pretty false && node --test .test-dist/tests/*.test.js"
   },
   "dependencies": {
     "@devvit/public-api": "0.12.13",

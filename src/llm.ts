@@ -400,3 +400,10 @@ function isValidConfidence(value: unknown): value is number {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+/**
+ * Exported internals for focused unit tests.
+ */
+export const __llmTestables = {
+  parseModerationDecision,
+};
