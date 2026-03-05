@@ -9,12 +9,15 @@ export type ContributionType = "post" | "comment";
 export type ModerationDecision = {
   removalReasonIndex: number | null;
   justification: string;
+  confidence: number;
+  needsHumanReview: boolean;
 };
 
 export type Contribution = {
   id: string;
   authorName: string;
   subredditName: string;
+  permalink: string;
   contentForPrompt: string;
   imageUrls: string[];
   distinguishedBy?: string;

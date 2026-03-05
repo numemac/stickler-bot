@@ -6,3 +6,7 @@ settings:
       label: "OpenAI API Key"
       defaultValue: ""
       isSecret: true
+    auto-enforce-confidence-threshold:
+      type: number
+      label: "Auto-Enforce Confidence Threshold (0 to 1)"
+      defaultValue: 0.8
