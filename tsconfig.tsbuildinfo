@@ -1,1 +1,1 @@
-{"root":["./src/constants.ts","./src/llm.ts","./src/main.ts","./src/moderation.ts","./src/text.ts","./src/types.ts"],"version":"5.8.3"}
+{"root":["./src/constants.ts","./src/llm.ts","./src/main.ts","./src/moderation.ts","./src/text.ts","./src/types.ts","./src/moderation/commentContext.ts","./src/moderation/confidence.ts","./src/moderation/contribution.ts","./src/moderation/postMedia.ts","./src/moderation/removalReply.ts","./src/moderation/triage.ts"],"version":"5.8.3"}
