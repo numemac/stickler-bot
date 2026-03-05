@@ -1,139 +1,118 @@
 # stickler-bot
 
-An AI-assisted moderation helper for Reddit communities.
+**Imagine if moderation started and ended with writing great rules.**
 
-`stickler-bot` helps moderator teams enforce subreddit rules by reviewing content against your existing Reddit **Removal Reasons** and taking action when a likely violation is found.
+`stickler-bot` turns your subreddit **Removal Reasons** into an always-on first-pass mod assistant: it reviews content, enforces clear violations, and routes gray-area cases to humans.
 
-Built by the **r/antinatalism** mod team to keep up with high-risk, fast-moving content, `stickler-bot` aims to make removals faster, more consistent, and easier to explain to users.
+Built by the **r/antinatalism** mod team to keep up with high-risk, fast-moving content, `stickler-bot` aims to make removals faster, more consistent, and easier to explain to users
 
-## What It Does
+## Why Moderators Install It
 
-- Reviews new posts (`PostSubmit`)
-- Reviews reported comments (`CommentReport`) only (not every new comment, to reduce API costs)
-- For reported comments, includes parent-chain + post context so replies are judged in conversation
-- Matches content to one removal reason (or none)
-- Uses model confidence + human-review flag before auto-removal
+- **Reduces queue pressure:** handles obvious removals quickly.
+- **Improves consistency:** uses your written removal reasons as the source of truth.
+- **Keeps humans in control:** uncertain cases are routed to manual review.
+- **Gives clear user feedback:** posts a rule-based removal explanation with a modmail link.
 
-When a violation is detected, it:
+## How It Works (In Plain English)
 
-- Posts a short moderator reply explaining the removal
-- Removes the item
+1. A new post is submitted, or a comment gets reported.
+2. The bot compares that content to your subreddit’s removal reasons.
+3. It chooses the best single matching rule, or no violation.
+4. It only auto-removes if confidence is high enough and no human review is needed.
+5. If not, it opens an internal modmail triage thread so your team can decide.
 
-If no violation is detected, it does nothing.
+For reported comments, it can include surrounding thread context so replies are judged in conversation, not isolation.
 
-## Confidence and Human Review Gate
+## What Your Community Sees
 
-For each moderation decision, the model now returns:
+When the bot removes something, it posts a short moderator comment that includes:
 
-- `confidence` (0 to 1)
-- `needsHumanReview` (`true` or `false`)
+- The violated rule
+- A brief explanation
+- A direct link to contact moderators
 
-The bot only auto-removes when all conditions are true:
+## Good Fit For
+
+- High-volume communities
+- Rule-heavy subreddits where consistency matters
+- Mod teams that want faster first-pass enforcement without fully handing over judgment
+
+## Writing Great Removal Reasons
+
+The biggest performance lever is rule quality. In general, the best rules for `stickler-bot` combine strict safety boundaries with clear, written nuance.
+
+What tends to work well:
+
+- **Clear non-negotiables:** define which violations should always be removed.
+- **“Not allowed” + “still allowed” in the same rule:** pair boundaries with allowed discussion to reduce over-removal.
+- **Behavior over intent:** describe observable signals, not assumed motives.
+- **Low-overlap categories:** make each rule distinct so one violation maps to one best reason.
+- **User-ready removal text:** write reasons in language users can understand and act on.
+- **Human backstop for ambiguity:** reserve edge cases for manual review instead of forcing weak auto-decisions.
+
+Quick quality test before enabling automation:
+
+1. Can two different mods read this rule and make the same call most of the time?
+2. Does the rule clearly state both what is prohibited and what is allowed?
+3. Could a user understand what to change next time from the removal message alone?
+4. Would this rule still be clear without reading modmail history or internal context?
+5. If this rule triggers, is it obvious why this rule is better than the other available reasons?
+
+## Need to Know Before Install
+
+### Setup
+
+- Install through the Reddit Developers app platform.
+- Configure these installation settings:
+  - `openai-api-key`
+  - `auto-enforce-confidence-threshold` (0 to 1, default `0.8`)
+
+### Scope
+
+- Reviews **new posts** automatically.
+- Reviews **reported comments** (not every new comment).
+- Can analyze Reddit-hosted images on posts when available.
+
+### Human-Review Safety Gate
+
+Auto-removal happens only when all are true:
 
 - A removal reason is selected
 - `needsHumanReview` is `false`
-- `confidence` is greater than or equal to your configured threshold
+- Model confidence is at or above your threshold
 
-If confidence is below threshold or `needsHumanReview` is `true`, the bot:
+Otherwise, the bot skips auto-enforcement and creates internal modmail triage.
 
-- Skips auto-enforcement
-- Opens an internal Modmail triage thread with a link, suggested rule, confidence, and model justification
+### Privacy and Data Sent to OpenAI
 
-## What Users See on Removal
+To make decisions, the bot may send:
 
-When an item is removed, the bot replies with:
+- Post/comment text
+- For reported comments: parent-chain + post context
+- Participant usernames in thread context are replaced with anonymized labels (for example, `User_1`, `User_2`) before sending context to OpenAI
+- Subreddit removal reasons
+- Image URLs for supported image posts
 
-- The violated rule title
-- A short justification
-- A direct modmail/contact link:
-  `https://www.reddit.com/message/compose?to=r/{subreddit_name}`
+If your subreddit handles sensitive topics, review this with your mod team before rollout.
 
-## Image Posts
+### Cost
 
-For posts with images, the bot can include vision analysis in the decision:
+OpenAI API usage is paid. Set usage limits in your OpenAI account before enabling broad automation.
 
-- Supports Reddit-hosted single-image and gallery posts
-- Retries automatically if an image URL fails
-- Falls back to text-only review if needed
+### Limitations
 
-## Comment Thread Context (for Mod Decisions)
-
-When a reported comment is reviewed, the bot now builds a structured thread snapshot for the model:
-
-- The **target comment** (the only item being moderated)
-- Parent comments in order (parent, grandparent, great-grandparent, etc.)
-- The top-of-thread **post context** (title + body, or URL if no body)
-- An anonymized participant label (for example `User_1`, `User_2`) on each contribution
-
-If the same Reddit account appears multiple times in the chain, it keeps the same anonymized label so the model can follow who said what without seeing raw usernames.
-
-For very deep chains, the bot keeps the most useful context (root + latest ancestors) and may omit middle ancestors for prompt size.
-
-## Before You Install
-
-Please make sure:
-
-- Your subreddit Removal Reasons are up-to-date and clearly written
-- You have an OpenAI API key available
-- Your mod team is comfortable with automated removals
-
-## Data Sent to OpenAI
-
-To make a decision, the bot may send:
-
-- Post title/body or comment text
-- For reported comments: target comment + parent-chain context + top-level post context
-- Anonymized participant labels for context tracking (not raw commenter usernames/IDs in this metadata layer)
-- Your Removal Reasons (titles and messages)
-- For image posts, up to a few Reddit image URLs for vision analysis
-
-Model output used for enforcement includes:
-
-- `removalReasonIndex`
-- `justification`
-- `confidence`
-- `needsHumanReview`
-
-If you moderate sensitive topics, review this carefully before enabling automation.
-
-## Costs and Budgeting
-
-OpenAI API calls cost money. You should estimate expected volume (new posts + comment reports) and set a budget/usage limits in the OpenAI UI to prevent unexpected spend or abuse.
-
-## Installation (Moderator View)
-
-Install via the Reddit Developers App platform, then set the installation setting:
-
-- `openai-api-key` (secret string)
-- `auto-enforce-confidence-threshold` (number from 0 to 1, default `0.8`)
-
-Without this setting, the bot cannot classify content.
-
-## Safety and Abuse Resistance
-
-The bot includes protections against prompt-injection and text abuse:
-
-- Treats post/comment text as untrusted input data
-- Instructs the model to ignore embedded instructions in user content
-- Validates model output format before acting
-- Sanitizes model-generated text before posting user-visible replies
-- Skips bot-authored, already removed, and distinguished items
-- Uses these actions only: reply + remove for auto-enforced violations, and internal Modmail triage for skipped enforcement cases
-
-## Current Scope and Limitations
-
-- Comment auto-moderation currently runs on **reported comments** (not every new comment)
-- Decision quality depends heavily on rule quality and clarity
-- As with any AI moderation system, false positives/negatives can occur
+- Decision quality depends on how clear your removal reasons are.
+- False positives/negatives can still happen.
+- AI moderation should be monitored and tuned over time.
 
 ## Recommended Rollout
 
-1. Install in a lower-risk/test subreddit first
-2. Monitor logs and removals closely
-3. Refine Removal Reasons for clearer rule matching
-4. Expand use once behavior matches moderator expectations
+1. Start in a lower-risk or test subreddit.
+2. Watch removals and triage modmail closely.
+3. Refine rule wording for cleaner matches.
+4. Expand once behavior is stable.
 
-## Support and Docs
+## Links
 
 - Devvit docs: https://developers.reddit.com/docs/
-- Developer portal: https://developers.reddit.com/my/apps
+- Reddit developer portal: https://developers.reddit.com/my/apps
