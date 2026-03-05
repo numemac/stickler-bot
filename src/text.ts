@@ -51,3 +51,38 @@ export function sanitizeModelJustification(value: string, maxChars: number): str
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
     .replace(/[`*_>#~]/g, "");
 }
+
+/**
+ * Sanitizes public-facing removal justifications and strips direct quoted snippets.
+ */
+export function sanitizePublicRemovalJustification(
+  value: string,
+  maxChars: number
+): string {
+  const expandedLimit = Math.max(maxChars * 2, maxChars);
+  const withoutBlockquotes = sanitizeUntrustedText(value, expandedLimit)
+    .split(/\r?\n/)
+    .filter((line) => !line.trimStart().startsWith(">"))
+    .join(" ");
+  const base = sanitizeModelJustification(withoutBlockquotes, expandedLimit);
+  const withoutQuotedSnippets = base
+    .replace(/“[^”\n]{1,280}”/g, "")
+    .replace(/"[^"\n]{1,280}"/g, "")
+    .replace(/‘[^’\n]{1,280}’/g, "")
+    .replace(/`[^`\n]{1,280}`/g, "");
+  const cleaned = toSingleLine(
+    withoutQuotedSnippets
+      .replace(/[“”‘’"`]/g, "")
+      .replace(/\s+([,.;:!?])/g, "$1")
+      .replace(/\(\s*\)/g, "")
+  );
+
+  if (cleaned.length === 0) {
+    return truncate(
+      "This was removed because it appears to break a subreddit rule. If you think this is a mistake, please message the mod team and we will review.",
+      maxChars
+    );
+  }
+
+  return truncate(cleaned, maxChars);
+}

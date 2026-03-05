@@ -14,7 +14,6 @@ import {
   OPENAI_MODEL,
 } from "./constants.js";
 import {
-  sanitizeModelJustification,
   sanitizeUntrustedText,
   toSingleLine,
   truncate,
@@ -73,7 +72,9 @@ export function buildLLMPrompt(
     "- If multiple rules could apply, choose the single best match.",
     "- confidence must be a number from 0 to 1, where 1 means highest confidence.",
     "- needsHumanReview must be true when context is ambiguous, uncertain, or high-risk for false positives.",
-    "- Keep justification brief, specific, and safe for user-facing moderation feedback.",
+    "- Write justification in warm, plain language that sounds human (not robotic), typically 2 to 4 sentences.",
+    "- Do not quote, restate verbatim, or directly repeat the violating text.",
+    "- Explain the concern at a high level and, when useful, suggest how to participate within the rules.",
   ].join("\n");
 }
 
@@ -310,10 +311,7 @@ function parseModerationDecision(
     return null;
   }
 
-  const justification = sanitizeModelJustification(
-    justificationRaw,
-    MAX_JUSTIFICATION_CHARS
-  );
+  const justification = sanitizeUntrustedText(justificationRaw, MAX_JUSTIFICATION_CHARS);
   if (justification.length === 0) {
     console.error("LLM JSON justification was empty");
     return null;

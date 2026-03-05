@@ -9,12 +9,14 @@ import { type RedditAPIClient, type RemovalReason } from "@devvit/public-api";
 import {
   BOT_USERNAME_FALLBACK,
   MAX_CONTENT_CHARS,
+  MAX_JUSTIFICATION_CHARS,
   MAX_REPLY_CHARS,
   MAX_VISION_IMAGES,
 } from "./constants.js";
 import { buildLLMPrompt, getOpenAIResponse } from "./llm.js";
 import {
   sanitizeModelJustification,
+  sanitizePublicRemovalJustification,
   sanitizeUntrustedText,
   toSingleLine,
   truncate,
@@ -797,7 +799,10 @@ function buildRemovalReply(
   )}`;
   const safeReasonTitle = toSingleLine(sanitizeUntrustedText(reason.title, 256));
   const safeReasonMessage = sanitizeUntrustedText(reason.message, 2_000);
-  const safeJustification = sanitizeModelJustification(justification, 600);
+  const safeJustification = sanitizePublicRemovalJustification(
+    justification,
+    MAX_JUSTIFICATION_CHARS
+  );
 
   const reply = [
     `Your ${type} has been removed.`,
