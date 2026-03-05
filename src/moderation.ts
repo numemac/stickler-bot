@@ -208,6 +208,10 @@ export async function moderateContribution(
         text: replyText,
         runAs: "APP",
       });
+
+      // Do not sticky if the contribution is a comment
+      reply.distinguish(type == "post" ? true : false);
+
       console.log(
         `Posted removal comment ${reply.id} on ${moderationKey} for reason [${removalReasonIndex}] ${violatedReason.title}`
       );
