@@ -4,3 +4,4 @@ tests/**/*.js
 .env
 *.tsbuildinfo
 .test-dist
+notes
