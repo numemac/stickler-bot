@@ -97,12 +97,14 @@ export async function moderateContribution(
       reddit,
       contribution.subredditName
     );
+    const currentDateTimeUtc = new Date().toISOString();
 
     const llmPrompt = buildLLMPrompt(
       contribution.subredditName,
       removalReasons,
       contribution.contentForPrompt,
-      subredditDescription
+      subredditDescription,
+      currentDateTimeUtc
     );
 
     const llmDecision = await getOpenAIResponse(

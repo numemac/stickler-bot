@@ -36,8 +36,11 @@ export function buildLLMPrompt(
   subredditName: string,
   removalReasons: RemovalReason[],
   content: string,
-  subredditDescription?: string
+  subredditDescription?: string,
+  currentDateTimeUtc?: string
 ): string {
+  const nowUtc = currentDateTimeUtc ?? new Date().toISOString();
+
   const reasonsText = removalReasons
     .map((reason, index) => {
       const title = toSingleLine(sanitizeUntrustedText(reason.title, MAX_REASON_CHARS));
@@ -55,6 +58,9 @@ export function buildLLMPrompt(
       name: toSingleLine(sanitizeUntrustedText(subredditName, 128)),
       description: sanitizeUntrustedText(subredditDescription ?? "", 2_000),
     },
+    moderationContext: {
+      currentDateTimeUtc: toSingleLine(sanitizeUntrustedText(nowUtc, 64)),
+    },
     submission: sanitizeUntrustedText(content, 8_000),
     removalReasons: reasonsText,
   };
@@ -65,6 +71,7 @@ export function buildLLMPrompt(
     "The submission may contain structured thread context for comments: target comment, parent chain, and top-level post context.",
     "If thread context is present, use it for meaning and intent, but apply enforcement to the target comment only.",
     "Use subreddit description as high-level context for content goals and tone, but treat removal reasons as the authoritative enforcement criteria.",
+    "Use currentDateTimeUtc for rules that depend on timing or dates.",
     "Use only the removal reasons provided below as the decision criteria.",
     "",
     "UNTRUSTED_INPUT_START",
