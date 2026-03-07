@@ -5,7 +5,7 @@
  * responsibilities (context building, media handling, triage, and replies)
  * to focused modules under ./moderation.
  */
-import { type RedditAPIClient } from "@devvit/public-api";
+import { SubredditInfo, type RedditAPIClient } from "@devvit/public-api";
 
 import { BOT_USERNAME_FALLBACK } from "./constants.js";
 import { buildLLMPrompt, getOpenAIResponse } from "./llm.js";
@@ -93,10 +93,16 @@ export async function moderateContribution(
       return false;
     }
 
+    const subredditDescription = await fetchSubredditDescription(
+      reddit,
+      contribution.subredditName
+    );
+
     const llmPrompt = buildLLMPrompt(
       contribution.subredditName,
       removalReasons,
-      contribution.contentForPrompt
+      contribution.contentForPrompt,
+      subredditDescription
     );
 
     const llmDecision = await getOpenAIResponse(
@@ -218,3 +224,23 @@ export const __moderationTestables = {
   hasSubstantialVideoBodyText,
   isRedditVideoUploadPost,
 };
+
+/**
+ * Fetches subreddit description text used as additional context for LLM classification.
+ */
+async function fetchSubredditDescription(
+  reddit: RedditAPIClient,
+  subredditName: string
+): Promise<string | undefined> {
+  try {
+    const subredditInfo : SubredditInfo = await reddit.getSubredditInfoByName(subredditName);
+    const description = subredditInfo.description?.markdown?.trim();
+    return description != null && description.length > 0 ? description : undefined;
+  } catch (error) {
+    console.warn(
+      `Could not fetch subreddit description for r/${subredditName}; continuing without it.`,
+      error
+    );
+    return undefined;
+  }
+}

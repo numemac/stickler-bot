@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { __llmTestables } from "../src/llm.js";
+import { __llmTestables, buildLLMPrompt } from "../src/llm.js";
 
 test("parseModerationDecision parses valid JSON payload", () => {
   const result = __llmTestables.parseModerationDecision(
@@ -65,4 +65,19 @@ test("parseModerationDecision rejects missing needsHumanReview", () => {
   );
 
   assert.equal(result, null);
+});
+
+test("buildLLMPrompt includes subreddit description context", () => {
+  const prompt = buildLLMPrompt(
+    "exampleSub",
+    [{ id: "r1", title: "Rule title", message: "Rule message" }],
+    "Submission body",
+    "This community prioritizes constructive discussion."
+  );
+
+  assert.match(prompt, /"name": "exampleSub"/);
+  assert.match(
+    prompt,
+    /"description": "This community prioritizes constructive discussion\."/
+  );
 });
