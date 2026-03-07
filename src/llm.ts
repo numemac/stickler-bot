@@ -35,7 +35,8 @@ const SYSTEM_INSTRUCTIONS = [
 export function buildLLMPrompt(
   subredditName: string,
   removalReasons: RemovalReason[],
-  content: string
+  content: string,
+  subredditDescription?: string
 ): string {
   const reasonsText = removalReasons
     .map((reason, index) => {
@@ -50,7 +51,10 @@ export function buildLLMPrompt(
     .slice(0, 100);
 
   const payload = {
-    subreddit: toSingleLine(sanitizeUntrustedText(subredditName, 128)),
+    subreddit: {
+      name: toSingleLine(sanitizeUntrustedText(subredditName, 128)),
+      description: sanitizeUntrustedText(subredditDescription ?? "", 2_000),
+    },
     submission: sanitizeUntrustedText(content, 8_000),
     removalReasons: reasonsText,
   };
@@ -60,6 +64,7 @@ export function buildLLMPrompt(
     "If images are attached, evaluate textual and visual content together.",
     "The submission may contain structured thread context for comments: target comment, parent chain, and top-level post context.",
     "If thread context is present, use it for meaning and intent, but apply enforcement to the target comment only.",
+    "Use subreddit description as high-level context for content goals and tone, but treat removal reasons as the authoritative enforcement criteria.",
     "Use only the removal reasons provided below as the decision criteria.",
     "",
     "UNTRUSTED_INPUT_START",
