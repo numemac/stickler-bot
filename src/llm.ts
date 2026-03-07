@@ -29,6 +29,16 @@ const SYSTEM_INSTRUCTIONS = [
   "Return only JSON with keys removalReasonIndex, justification, confidence, and needsHumanReview.",
 ].join(" ");
 
+const UTC_DAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
 /**
  * Builds the classifier prompt from subreddit metadata, rules, and content.
  */
@@ -40,6 +50,7 @@ export function buildLLMPrompt(
   currentDateTimeUtc?: string
 ): string {
   const nowUtc = currentDateTimeUtc ?? new Date().toISOString();
+  const currentDayOfWeekUtc = getUtcDayOfWeek(nowUtc);
 
   const reasonsText = removalReasons
     .map((reason, index) => {
@@ -60,6 +71,9 @@ export function buildLLMPrompt(
     },
     moderationContext: {
       currentDateTimeUtc: toSingleLine(sanitizeUntrustedText(nowUtc, 64)),
+      currentDayOfWeekUtc: toSingleLine(
+        sanitizeUntrustedText(currentDayOfWeekUtc, 16)
+      ),
     },
     submission: sanitizeUntrustedText(content, 8_000),
     removalReasons: reasonsText,
@@ -71,7 +85,7 @@ export function buildLLMPrompt(
     "The submission may contain structured thread context for comments: target comment, parent chain, and top-level post context.",
     "If thread context is present, use it for meaning and intent, but apply enforcement to the target comment only.",
     "Use subreddit description as high-level context for content goals and tone, but treat removal reasons as the authoritative enforcement criteria.",
-    "Use currentDateTimeUtc for rules that depend on timing or dates.",
+    "Use currentDateTimeUtc and currentDayOfWeekUtc for rules that depend on timing or dates.",
     "Use only the removal reasons provided below as the decision criteria.",
     "",
     "UNTRUSTED_INPUT_START",
@@ -88,6 +102,18 @@ export function buildLLMPrompt(
     "- Do not quote, restate verbatim, or directly repeat the violating text.",
     "- Explain the concern at a high level and, when useful, suggest how to participate within the rules.",
   ].join("\n");
+}
+
+/**
+ * Returns the weekday name for a UTC datetime string.
+ */
+function getUtcDayOfWeek(dateTimeUtc: string): string {
+  const parsed = new Date(dateTimeUtc);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Unknown";
+  }
+
+  return UTC_DAY_NAMES[parsed.getUTCDay()] ?? "Unknown";
 }
 
 /**
