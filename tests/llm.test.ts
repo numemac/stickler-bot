@@ -67,12 +67,13 @@ test("parseModerationDecision rejects missing needsHumanReview", () => {
   assert.equal(result, null);
 });
 
-test("buildLLMPrompt includes subreddit description context", () => {
+test("buildLLMPrompt includes subreddit description and UTC datetime context", () => {
   const prompt = buildLLMPrompt(
     "exampleSub",
     [{ id: "r1", title: "Rule title", message: "Rule message" }],
     "Submission body",
-    "This community prioritizes constructive discussion."
+    "This community prioritizes constructive discussion.",
+    "2026-03-07T14:30:00.000Z"
   );
 
   assert.match(prompt, /"name": "exampleSub"/);
@@ -80,4 +81,5 @@ test("buildLLMPrompt includes subreddit description context", () => {
     prompt,
     /"description": "This community prioritizes constructive discussion\."/
   );
+  assert.match(prompt, /"currentDateTimeUtc": "2026-03-07T14:30:00\.000Z"/);
 });
