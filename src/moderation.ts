@@ -22,6 +22,10 @@ import {
   hasSubstantialVideoBodyText,
   isRedditVideoUploadPost,
 } from "./moderation/postMedia.js";
+import {
+  AUTO_ENFORCEMENT_DISABLED_MARKER,
+  selectEnforceableRemovalReasons,
+} from "./moderation/removalReasonToggle.js";
 import { buildRemovalReply } from "./moderation/removalReply.js";
 import { sendTriageModmail } from "./moderation/triage.js";
 
@@ -93,6 +97,22 @@ export async function moderateContribution(
       return false;
     }
 
+    const enforceableRemovalReasons = selectEnforceableRemovalReasons(removalReasons);
+    const disabledReasonCount =
+      removalReasons.length - enforceableRemovalReasons.length;
+    if (enforceableRemovalReasons.length === 0) {
+      console.warn(
+        `Skipping ${moderationKey}: all removal reasons are marked with ${AUTO_ENFORCEMENT_DISABLED_MARKER} (auto-enforcement disabled).`
+      );
+      return true;
+    }
+
+    if (disabledReasonCount > 0) {
+      console.log(
+        `Excluded ${disabledReasonCount} removal reason(s) from LLM classification for ${moderationKey} via marker ${AUTO_ENFORCEMENT_DISABLED_MARKER}.`
+      );
+    }
+
     const subredditDescription = await fetchSubredditDescription(
       reddit,
       contribution.subredditName
@@ -101,7 +121,7 @@ export async function moderateContribution(
 
     const llmPrompt = buildLLMPrompt(
       contribution.subredditName,
-      removalReasons,
+      enforceableRemovalReasons.map(({ reason }) => reason),
       contribution.contentForPrompt,
       subredditDescription,
       currentDateTimeUtc
@@ -110,7 +130,7 @@ export async function moderateContribution(
     const llmDecision = await getOpenAIResponse(
       openaiApiKey,
       llmPrompt,
-      removalReasons.length,
+      enforceableRemovalReasons.length,
       contribution.imageUrls
     );
     if (llmDecision == null) {
@@ -129,13 +149,15 @@ export async function moderateContribution(
       return true;
     }
 
-    const violatedReason = removalReasons[removalReasonIndex];
-    if (violatedReason == null) {
+    const violatedReasonEntry = enforceableRemovalReasons[removalReasonIndex];
+    if (violatedReasonEntry == null) {
       console.error(
-        `LLM returned out-of-range removalReasonIndex=${removalReasonIndex} for ${moderationKey}`
+        `LLM returned out-of-range removalReasonIndex=${removalReasonIndex} for ${moderationKey} (enforceableReasonCount=${enforceableRemovalReasons.length})`
       );
       return false;
     }
+    const violatedReason = violatedReasonEntry.reason;
+    const violatedReasonSourceIndex = violatedReasonEntry.originalIndex;
 
     if (needsHumanReview) {
       await sendTriageModmail(
@@ -150,7 +172,7 @@ export async function moderateContribution(
         "needs-human-review"
       );
       console.log(
-        `Flagged ${moderationKey} for human review: reason [${removalReasonIndex}] ${violatedReason.title} (confidence=${formatConfidence(
+        `Flagged ${moderationKey} for human review: reason [${violatedReasonSourceIndex}] ${violatedReason.title} (confidence=${formatConfidence(
           confidence
         )}, threshold=${formatConfidence(autoEnforceConfidenceThreshold)})`
       );
@@ -172,7 +194,7 @@ export async function moderateContribution(
       console.log(
         `Not auto-enforcing ${moderationKey}: confidence ${formatConfidence(
           confidence
-        )} below threshold ${formatConfidence(autoEnforceConfidenceThreshold)} for reason [${removalReasonIndex}] ${violatedReason.title}`
+        )} below threshold ${formatConfidence(autoEnforceConfidenceThreshold)} for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
       );
       return true;
     }
@@ -195,7 +217,7 @@ export async function moderateContribution(
       reply.distinguish(type == "post" ? true : false);
 
       console.log(
-        `Posted removal comment ${reply.id} on ${moderationKey} for reason [${removalReasonIndex}] ${violatedReason.title}`
+        `Posted removal comment ${reply.id} on ${moderationKey} for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
       );
     } catch (error) {
       console.error(`Failed to post removal comment on ${moderationKey}`, error);
@@ -203,7 +225,7 @@ export async function moderateContribution(
 
     await reddit.remove(contribution.id, false);
     console.log(
-      `Removed ${moderationKey} for reason [${removalReasonIndex}] ${violatedReason.title}`
+      `Removed ${moderationKey} for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
     );
 
     return true;

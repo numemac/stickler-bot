@@ -13,7 +13,7 @@
 ## How It Works
 
 1. A new post is submitted, or a comment gets reported.
-2. The bot builds context and compares the contribution to your subreddit Removal Reasons.
+2. The bot builds context and compares the contribution to enforceable subreddit Removal Reasons.
 3. The model returns a structured decision: matched rule or no violation, plus justification, confidence, and a human-review flag.
 4. If confidence passes your threshold and human review is not requested, the bot posts a rule-linked removal reply and removes the item.
 5. If confidence is low or risk is ambiguous, the bot skips auto-enforcement and opens internal modmail triage.
@@ -27,6 +27,14 @@ Auto-removal happens only when all conditions are true:
 - Confidence is at or above `auto-enforce-confidence-threshold` (default `0.8`)
 
 This keeps the bot procedural and conservative instead of overconfident.
+
+## Disable Auto-Enforcement Per Reason
+
+If you want a removal reason available for moderators but not enforceable by the bot, append this marker to the reason title or message:
+
+- `[~!~!~]`
+
+When this marker is present, that reason is excluded from bot classification and auto-enforcement.
 
 ## Alpha Pilot Communities
 
@@ -55,7 +63,7 @@ To make decisions, the bot may send:
 - Post/comment text
 - For reported comments: parent-chain + post context
 - Participant usernames in thread context are replaced with anonymized labels (for example, `User_1`, `User_2`) before sending context to OpenAI
-- Subreddit removal reasons
+- Only enforceable subreddit removal reasons (reasons containing `[~!~!~]` are excluded)
 - Image URLs for supported image posts
 
 ### Cost
