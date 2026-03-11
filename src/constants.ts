@@ -8,7 +8,7 @@ export const OPENAI_API_KEY_SETTING = "openai-api-key";
 export const AUTO_ENFORCE_CONFIDENCE_THRESHOLD_SETTING =
   "auto-enforce-confidence-threshold";
 
-export const OPENAI_MODEL = "gpt-4o";
+export const OPENAI_MODEL = "gpt-5.4";
 export const BOT_USERNAME_FALLBACK = "stickler-bot";
 export const DEFAULT_AUTO_ENFORCE_CONFIDENCE_THRESHOLD = 0.8;
 
