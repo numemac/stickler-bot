@@ -70,9 +70,10 @@ export function sanitizePublicRemovalJustification(
     .replace(/"[^"\n]{1,280}"/g, "")
     .replace(/‘[^’\n]{1,280}’/g, "")
     .replace(/`[^`\n]{1,280}`/g, "");
+  const normalizedApostrophes = withoutQuotedSnippets.replace(/[‘’]/g, "'");
   const cleaned = toSingleLine(
-    withoutQuotedSnippets
-      .replace(/[“”‘’"`]/g, "")
+    normalizedApostrophes
+      .replace(/[“”"`]/g, "")
       .replace(/\s+([,.;:!?])/g, "$1")
       .replace(/\(\s*\)/g, "")
   );
