@@ -32,3 +32,13 @@ test("sanitizePublicRemovalJustification respects max length", () => {
 
   assert.ok(result.length <= maxChars);
 });
+
+test("sanitizePublicRemovalJustification normalizes curly apostrophes", () => {
+  const result = sanitizePublicRemovalJustification(
+    "This was removed because they’d repeatedly used personal attacks.",
+    240
+  );
+
+  assert.match(result, /they'd repeatedly used personal attacks\./);
+  assert.doesNotMatch(result, /\btheyd\b/);
+});

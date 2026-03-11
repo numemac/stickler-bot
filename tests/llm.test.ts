@@ -67,6 +67,25 @@ test("parseModerationDecision rejects missing needsHumanReview", () => {
   assert.equal(result, null);
 });
 
+test("parseModerationDecision forces human review below confidence bar", () => {
+  const result = __llmTestables.parseModerationDecision(
+    JSON.stringify({
+      removalReasonIndex: 0,
+      justification: "Potentially rule-breaking but uncertain.",
+      confidence: 0.61,
+      needsHumanReview: false,
+    }),
+    2
+  );
+
+  assert.deepEqual(result, {
+    removalReasonIndex: 0,
+    justification: "Potentially rule-breaking but uncertain.",
+    confidence: 0.61,
+    needsHumanReview: true,
+  });
+});
+
 test("buildLLMPrompt includes subreddit description and UTC time context", () => {
   const prompt = buildLLMPrompt(
     "exampleSub",
@@ -83,4 +102,17 @@ test("buildLLMPrompt includes subreddit description and UTC time context", () =>
   );
   assert.match(prompt, /"currentDateTimeUtc": "2026-03-07T14:30:00\.000Z"/);
   assert.match(prompt, /"currentDayOfWeekUtc": "Saturday"/);
+  assert.match(prompt, /"inputSectionsTruncated": false/);
+});
+
+test("buildLLMPrompt marks truncated input sections", () => {
+  const prompt = buildLLMPrompt(
+    "exampleSub",
+    [{ id: "r1", title: "Rule title", message: "Rule message" }],
+    "x".repeat(8_200),
+    "Context",
+    "2026-03-07T14:30:00.000Z"
+  );
+
+  assert.match(prompt, /"inputSectionsTruncated": true/);
 });

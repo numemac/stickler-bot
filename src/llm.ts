@@ -39,6 +39,62 @@ const UTC_DAY_NAMES = [
   "Saturday",
 ] as const;
 
+const MAX_REMOVAL_REASONS_IN_PROMPT = 100;
+const NEEDS_HUMAN_REVIEW_CONFIDENCE_BAR = 0.8;
+const MAX_SUBREDDIT_NAME_CHARS = 128;
+const MAX_SUBREDDIT_DESCRIPTION_CHARS = 2_000;
+const MAX_DATETIME_CHARS = 64;
+const MAX_DAY_OF_WEEK_CHARS = 16;
+const MAX_SUBMISSION_CHARS = 8_000;
+
+const STRICT_MODERATION_DECISION_RESPONSE_FORMAT = {
+  type: "json_schema" as const,
+  json_schema: {
+    name: "moderation_decision",
+    description: "Structured moderation decision payload for one contribution.",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        removalReasonIndex: {
+          anyOf: [
+            {
+              type: "integer",
+              minimum: 0,
+            },
+            {
+              type: "null",
+            },
+          ],
+        },
+        justification: {
+          type: "string",
+          minLength: 1,
+        },
+        confidence: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+        },
+        needsHumanReview: {
+          type: "boolean",
+        },
+      },
+      required: [
+        "removalReasonIndex",
+        "justification",
+        "confidence",
+        "needsHumanReview",
+      ],
+    },
+  },
+};
+
+const LEGACY_JSON_OBJECT_RESPONSE_FORMAT = {
+  type: "json_object" as const,
+};
+
 /**
  * Builds the classifier prompt from subreddit metadata, rules, and content.
  */
@@ -51,32 +107,83 @@ export function buildLLMPrompt(
 ): string {
   const nowUtc = currentDateTimeUtc ?? new Date().toISOString();
   const currentDayOfWeekUtc = getUtcDayOfWeek(nowUtc);
+  const truncatedSections = new Set<string>();
+  const confidenceBarText = NEEDS_HUMAN_REVIEW_CONFIDENCE_BAR.toFixed(2);
+  const mediumBandUpperBound = Math.max(
+    0.4,
+    NEEDS_HUMAN_REVIEW_CONFIDENCE_BAR - 0.01
+  ).toFixed(2);
 
-  const reasonsText = removalReasons
-    .map((reason, index) => {
-      const title = toSingleLine(sanitizeUntrustedText(reason.title, MAX_REASON_CHARS));
-      const message = sanitizeUntrustedText(reason.message, MAX_REASON_CHARS);
-      return {
-        index,
-        title,
-        message,
-      };
-    })
-    .slice(0, 100);
+  const candidateReasons = removalReasons.slice(0, MAX_REMOVAL_REASONS_IN_PROMPT);
+  if (removalReasons.length > MAX_REMOVAL_REASONS_IN_PROMPT) {
+    truncatedSections.add("removalReasons");
+  }
+
+  const reasonsText = candidateReasons.map((reason, index) => {
+    const title = toSingleLine(
+      sanitizeForPrompt(
+        reason.title,
+        MAX_REASON_CHARS,
+        truncatedSections,
+        `removalReasons[${index}].title`
+      )
+    );
+    const message = sanitizeForPrompt(
+      reason.message,
+      MAX_REASON_CHARS,
+      truncatedSections,
+      `removalReasons[${index}].message`
+    );
+    return {
+      index,
+      title,
+      message,
+    };
+  });
 
   const payload = {
     subreddit: {
-      name: toSingleLine(sanitizeUntrustedText(subredditName, 128)),
-      description: sanitizeUntrustedText(subredditDescription ?? "", 2_000),
-    },
-    moderationContext: {
-      currentDateTimeUtc: toSingleLine(sanitizeUntrustedText(nowUtc, 64)),
-      currentDayOfWeekUtc: toSingleLine(
-        sanitizeUntrustedText(currentDayOfWeekUtc, 16)
+      name: toSingleLine(
+        sanitizeForPrompt(
+          subredditName,
+          MAX_SUBREDDIT_NAME_CHARS,
+          truncatedSections,
+          "subreddit.name"
+        )
+      ),
+      description: sanitizeForPrompt(
+        subredditDescription ?? "",
+        MAX_SUBREDDIT_DESCRIPTION_CHARS,
+        truncatedSections,
+        "subreddit.description"
       ),
     },
-    submission: sanitizeUntrustedText(content, 8_000),
+    moderationContext: {
+      currentDateTimeUtc: toSingleLine(
+        sanitizeForPrompt(
+          nowUtc,
+          MAX_DATETIME_CHARS,
+          truncatedSections,
+          "moderationContext.currentDateTimeUtc"
+        )
+      ),
+      currentDayOfWeekUtc: toSingleLine(
+        sanitizeForPrompt(
+          currentDayOfWeekUtc,
+          MAX_DAY_OF_WEEK_CHARS,
+          truncatedSections,
+          "moderationContext.currentDayOfWeekUtc"
+        )
+      ),
+    },
+    submission: sanitizeForPrompt(
+      content,
+      MAX_SUBMISSION_CHARS,
+      truncatedSections,
+      "submission"
+    ),
     removalReasons: reasonsText,
+    inputSectionsTruncated: truncatedSections.size > 0,
   };
 
   return [
@@ -97,6 +204,8 @@ export function buildLLMPrompt(
     "- If no rule is violated, use null for removalReasonIndex.",
     "- If multiple rules could apply, choose the single best match.",
     "- confidence must be a number from 0 to 1, where 1 means highest confidence.",
+    `- Confidence rubric: 0.00-0.39 = weak signal or insufficient evidence; 0.40-${mediumBandUpperBound} = plausible concern but uncertain fit; ${confidenceBarText}-1.00 = clear and specific rule fit with low ambiguity.`,
+    `- If confidence is below ${confidenceBarText}, set needsHumanReview to true.`,
     "- needsHumanReview must be true when context is ambiguous, uncertain, or high-risk for false positives.",
     "- Write justification in warm, plain language that sounds human (not robotic), typically 2 to 4 sentences.",
     "- Do not quote, restate verbatim, or directly repeat the violating text.",
@@ -198,24 +307,42 @@ async function requestModerationCompletion(
     })),
   ];
 
-  const response = await openai.chat.completions.create({
+  const requestBody = {
     model: OPENAI_MODEL,
     temperature: 0,
     max_completion_tokens: 300,
-    response_format: { type: "json_object" },
     messages: [
       {
-        role: "system",
+        role: "system" as const,
         content: SYSTEM_INSTRUCTIONS,
       },
       {
-        role: "user",
+        role: "user" as const,
         content: imageUrls.length > 0 ? contentParts : prompt,
       },
     ],
-  });
+  };
 
-  return response.choices[0]?.message?.content ?? null;
+  try {
+    const response = await openai.chat.completions.create({
+      ...requestBody,
+      response_format: STRICT_MODERATION_DECISION_RESPONSE_FORMAT,
+    });
+    return response.choices[0]?.message?.content ?? null;
+  } catch (error) {
+    if (!isStructuredOutputUnsupportedError(error)) {
+      throw error;
+    }
+
+    console.warn(
+      "OpenAI model rejected strict json_schema output; retrying with json_object."
+    );
+    const response = await openai.chat.completions.create({
+      ...requestBody,
+      response_format: LEGACY_JSON_OBJECT_RESPONSE_FORMAT,
+    });
+    return response.choices[0]?.message?.content ?? null;
+  }
 }
 
 /**
@@ -349,6 +476,16 @@ function parseModerationDecision(
     return null;
   }
 
+  const needsHumanReview =
+    needsHumanReviewRaw || confidenceRaw < NEEDS_HUMAN_REVIEW_CONFIDENCE_BAR;
+  if (!needsHumanReviewRaw && needsHumanReview) {
+    console.warn(
+      `LLM returned needsHumanReview=false below confidence bar ${NEEDS_HUMAN_REVIEW_CONFIDENCE_BAR.toFixed(
+        2
+      )}; overriding to true.`
+    );
+  }
+
   const justification = sanitizeUntrustedText(justificationRaw, MAX_JUSTIFICATION_CHARS);
   if (justification.length === 0) {
     console.error("LLM JSON justification was empty");
@@ -359,8 +496,37 @@ function parseModerationDecision(
     removalReasonIndex,
     justification,
     confidence: confidenceRaw,
-    needsHumanReview: needsHumanReviewRaw,
+    needsHumanReview,
   };
+}
+
+/**
+ * Sanitizes a prompt field and tracks whether truncation occurred.
+ */
+function sanitizeForPrompt(
+  value: string,
+  maxChars: number,
+  truncatedSections: Set<string>,
+  sectionName: string
+): string {
+  const fullySanitized = sanitizeUntrustedText(value, Number.MAX_SAFE_INTEGER);
+  if (fullySanitized.length > maxChars) {
+    truncatedSections.add(sectionName);
+  }
+
+  return truncate(fullySanitized, maxChars);
+}
+
+/**
+ * Returns true when the model rejects strict structured output settings.
+ */
+function isStructuredOutputUnsupportedError(error: unknown): boolean {
+  const text = collectErrorText(error).toLowerCase();
+  return (
+    text.includes("response_format") &&
+    text.includes("json_schema") &&
+    (text.includes("not supported") || text.includes("unsupported"))
+  );
 }
 
 /**
