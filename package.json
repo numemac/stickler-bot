@@ -13,11 +13,11 @@
     "test:unit": "tsc -p tsconfig.test.json --pretty false && node --test .test-dist/tests/*.test.js"
   },
   "dependencies": {
-    "@devvit/public-api": "0.12.13",
+    "@devvit/public-api": "0.12.14",
     "openai": "^6.25.0"
   },
   "devDependencies": {
-    "devvit": "0.12.13",
+    "devvit": "0.12.14",
     "dotenv-cli": "8.0.0",
     "typescript": "5.8.3"
   }
