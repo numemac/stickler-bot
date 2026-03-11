@@ -4,7 +4,7 @@ import type { RemovalReason } from "@devvit/public-api";
  * Marker moderators can append to a removal reason title/message to disable
  * bot enforcement for that specific reason.
  */
-export const AUTO_ENFORCEMENT_DISABLED_MARKER = "[~!~!~]";
+export const AUTO_ENFORCEMENT_DISABLED_MARKER = "[~!]";
 
 export type EnforceableRemovalReason = {
   originalIndex: number;

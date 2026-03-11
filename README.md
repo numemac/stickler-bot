@@ -32,7 +32,7 @@ This keeps the bot procedural and conservative instead of overconfident.
 
 If you want a removal reason available for moderators but not enforceable by the bot, append this marker to the reason title or message:
 
-- `[~!~!~]`
+- `[~!]`
 
 When this marker is present, that reason is excluded from bot classification and auto-enforcement.
 
@@ -63,7 +63,7 @@ To make decisions, the bot may send:
 - Post/comment text
 - For reported comments: parent-chain + post context
 - Participant usernames in thread context are replaced with anonymized labels (for example, `User_1`, `User_2`) before sending context to OpenAI
-- Only enforceable subreddit removal reasons (reasons containing `[~!~!~]` are excluded)
+- Only enforceable subreddit removal reasons (reasons containing `[~!]` are excluded)
 - Image URLs for supported image posts
 
 ### Cost
