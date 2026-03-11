@@ -201,7 +201,7 @@ async function requestModerationCompletion(
   const response = await openai.chat.completions.create({
     model: OPENAI_MODEL,
     temperature: 0,
-    max_tokens: 300,
+    max_completion_tokens: 300,
     response_format: { type: "json_object" },
     messages: [
       {
