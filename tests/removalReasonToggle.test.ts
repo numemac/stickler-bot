@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   AUTO_ENFORCEMENT_DISABLED_MARKER,
+  EVIDENCE_REQUIRED_MARKER,
+  isEvidenceRequiredReason,
   isAutoEnforcementDisabledReason,
   selectEnforceableRemovalReasons,
 } from "../src/moderation/removalReasonToggle.js";
@@ -56,4 +58,30 @@ test("selectEnforceableRemovalReasons filters disabled reasons and keeps source 
   assert.equal(selected[0]?.reason.id, "r1");
   assert.equal(selected[1]?.originalIndex, 3);
   assert.equal(selected[1]?.reason.id, "r4");
+});
+
+test("isEvidenceRequiredReason detects marker in title or message", () => {
+  assert.equal(
+    isEvidenceRequiredReason({
+      title: `Rule title ${EVIDENCE_REQUIRED_MARKER}`,
+      message: "Rule body",
+    }),
+    true
+  );
+
+  assert.equal(
+    isEvidenceRequiredReason({
+      title: "Rule title",
+      message: `Rule body ${EVIDENCE_REQUIRED_MARKER}`,
+    }),
+    true
+  );
+
+  assert.equal(
+    isEvidenceRequiredReason({
+      title: "Rule title",
+      message: "Rule body",
+    }),
+    false
+  );
 });

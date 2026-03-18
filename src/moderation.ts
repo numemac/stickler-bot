@@ -27,9 +27,38 @@ import {
   selectEnforceableRemovalReasons,
 } from "./moderation/removalReasonToggle.js";
 import { buildRemovalReply } from "./moderation/removalReply.js";
+import { evaluateDecisionSafety } from "./moderation/decisionSafety.js";
 import { sendTriageModmail } from "./moderation/triage.js";
 
 const inFlightModerations = new Set<string>();
+
+type ModerateContributionDeps = {
+  fetchContribution: typeof fetchContribution;
+  fetchSubredditDescription: typeof fetchSubredditDescription;
+  buildLLMPrompt: typeof buildLLMPrompt;
+  getOpenAIResponse: typeof getOpenAIResponse;
+  sendTriageModmail: typeof sendTriageModmail;
+  buildRemovalReply: typeof buildRemovalReply;
+  now: () => string;
+};
+
+/**
+ * Resolves dependency overrides for deterministic unit testing.
+ */
+function resolveModerationDeps(
+  overrides: Partial<ModerateContributionDeps>
+): ModerateContributionDeps {
+  return {
+    fetchContribution,
+    fetchSubredditDescription,
+    buildLLMPrompt,
+    getOpenAIResponse,
+    sendTriageModmail,
+    buildRemovalReply,
+    now: () => new Date().toISOString(),
+    ...overrides,
+  };
+}
 
 /**
  * Runs end-to-end moderation for a single post or comment.
@@ -39,7 +68,8 @@ export async function moderateContribution(
   openaiApiKey: string,
   contributionId: string,
   type: ContributionType,
-  autoEnforceConfidenceThreshold: number
+  autoEnforceConfidenceThreshold: number,
+  depsOverrides: Partial<ModerateContributionDeps> = {}
 ): Promise<boolean> {
   const moderationKey = `${type}:${contributionId}`;
   if (inFlightModerations.has(moderationKey)) {
@@ -48,13 +78,14 @@ export async function moderateContribution(
   }
 
   inFlightModerations.add(moderationKey);
+  const deps = resolveModerationDeps(depsOverrides);
 
   try {
     const botUsername =
       (await reddit.getCurrentUser())?.username?.toLowerCase() ??
       BOT_USERNAME_FALLBACK;
 
-    const contribution = await fetchContribution(
+    const contribution = await deps.fetchContribution(
       reddit,
       contributionId,
       type,
@@ -113,13 +144,13 @@ export async function moderateContribution(
       );
     }
 
-    const subredditDescription = await fetchSubredditDescription(
+    const subredditDescription = await deps.fetchSubredditDescription(
       reddit,
       contribution.subredditName
     );
-    const currentDateTimeUtc = new Date().toISOString();
+    const currentDateTimeUtc = deps.now();
 
-    const llmPrompt = buildLLMPrompt(
+    const llmPrompt = deps.buildLLMPrompt(
       contribution.subredditName,
       enforceableRemovalReasons.map(({ reason }) => reason),
       contribution.contentForPrompt,
@@ -127,7 +158,7 @@ export async function moderateContribution(
       currentDateTimeUtc
     );
 
-    const llmDecision = await getOpenAIResponse(
+    const llmDecision = await deps.getOpenAIResponse(
       openaiApiKey,
       llmPrompt,
       enforceableRemovalReasons.length,
@@ -158,9 +189,17 @@ export async function moderateContribution(
     }
     const violatedReason = violatedReasonEntry.reason;
     const violatedReasonSourceIndex = violatedReasonEntry.originalIndex;
+    const decisionSafety = evaluateDecisionSafety(
+      violatedReason,
+      llmDecision.evidence,
+      contribution.imageUrls.length > 0
+    );
+    const effectiveNeedsHumanReview =
+      needsHumanReview || decisionSafety.forceHumanReview;
+    const humanReviewSkipReason = decisionSafety.skipReason ?? "needs-human-review";
 
-    if (needsHumanReview) {
-      await sendTriageModmail(
+    if (effectiveNeedsHumanReview) {
+      await deps.sendTriageModmail(
         reddit,
         contribution,
         type,
@@ -168,11 +207,11 @@ export async function moderateContribution(
         justification,
         confidence,
         autoEnforceConfidenceThreshold,
-        needsHumanReview,
-        "needs-human-review"
+        effectiveNeedsHumanReview,
+        humanReviewSkipReason
       );
       console.log(
-        `Flagged ${moderationKey} for human review: reason [${violatedReasonSourceIndex}] ${violatedReason.title} (confidence=${formatConfidence(
+        `Flagged ${moderationKey} for human review (${humanReviewSkipReason}): reason [${violatedReasonSourceIndex}] ${violatedReason.title} (confidence=${formatConfidence(
           confidence
         )}, threshold=${formatConfidence(autoEnforceConfidenceThreshold)})`
       );
@@ -180,7 +219,7 @@ export async function moderateContribution(
     }
 
     if (confidence < autoEnforceConfidenceThreshold) {
-      await sendTriageModmail(
+      await deps.sendTriageModmail(
         reddit,
         contribution,
         type,
@@ -199,7 +238,7 @@ export async function moderateContribution(
       return true;
     }
 
-    const replyText = buildRemovalReply(
+    const replyText = deps.buildRemovalReply(
       type,
       contribution.subredditName,
       violatedReason,
