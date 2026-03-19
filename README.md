@@ -12,7 +12,7 @@
 
 ## How It Works
 
-1. A new post is submitted, or a comment gets reported.
+1. A new post is submitted, a comment gets reported, or a moderator manually triggers review from the `Stickler-bot` menu item on a post/comment.
 2. The bot builds context and compares the contribution to enforceable subreddit Removal Reasons.
 3. The model returns a structured decision: matched rule or no violation, plus justification, confidence, a human-review flag, and evidence metadata.
 4. If confidence passes your threshold and human review is not requested, the bot posts a rule-linked removal reply and removes the item.
@@ -69,8 +69,18 @@ If any condition fails, the bot skips auto-removal and sends modmail triage with
 
 - Reviews **new posts** automatically.
 - Reviews **reported comments** (not every new comment).
+- Supports **manual review** from moderator menu items on posts and comments.
 - Can analyze Reddit-hosted images on posts when available.
 - Skips Reddit-hosted video uploads unless the post includes substantial body text (200+ characters).
+
+### Manual Review Feedback
+
+When a moderator triggers `Stickler-bot` from a menu item, the app shows a concise toast with one of these outcomes:
+
+- `Removed: <removal reason title>`
+- `Sent to triage: <removal reason title>`
+- `No removal reason applied.`
+- `AI review failed.`
 
 ### Privacy and Data Sent to OpenAI
 

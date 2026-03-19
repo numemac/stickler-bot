@@ -30,7 +30,7 @@ test("moderateContribution downgrades evidence-required rule to triage on unclea
   };
 
   const reddit = {
-    async getCurrentUser() {
+    async getAppUser() {
       return { username: "modbot" };
     },
     async getSubredditRemovalReasons() {
@@ -102,7 +102,8 @@ test("moderateContribution downgrades evidence-required rule to triage on unclea
     }
   );
 
-  assert.equal(result, true);
+  assert.equal(result.status, "triaged");
+  assert.equal(result.removalReasonTitle, reason.title);
   assert.equal(triageCalled, true);
   assert.equal(capturedSkipReason, "insufficient-evidence");
   assert.equal(submitCalled, false);
@@ -133,7 +134,7 @@ test("moderateContribution keeps non-evidence-required rules auto-enforceable", 
   };
 
   const reddit = {
-    async getCurrentUser() {
+    async getAppUser() {
       return { username: "modbot" };
     },
     async getSubredditRemovalReasons() {
@@ -197,7 +198,8 @@ test("moderateContribution keeps non-evidence-required rules auto-enforceable", 
     }
   );
 
-  assert.equal(result, true);
+  assert.equal(result.status, "removed");
+  assert.equal(result.removalReasonTitle, reason.title);
   assert.equal(triageCalled, false);
   assert.equal(submitCalled, true);
   assert.equal(removeCalled, true);

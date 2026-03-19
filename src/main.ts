@@ -4,7 +4,8 @@
  * This module wires Devvit configuration, installation settings, and trigger
  * registration, then delegates moderation behavior to the moderation service.
  */
-import { Devvit, SettingScope } from "@devvit/public-api";
+import { Devvit, SettingScope, MenuItemOnPressEvent } from "@devvit/public-api";
+import type { ContributionType, ModerationOutcome } from "./types.js";
 
 import {
   AUTO_ENFORCE_CONFIDENCE_THRESHOLD_SETTING,
@@ -47,6 +48,34 @@ Devvit.addSettings([
 ]);
 
 /**
+ * Shared handler for content moderation that can be invoked by different triggers.
+ */
+async function handleModeration(context: any, id: string, type: ContributionType): Promise<ModerationOutcome> {
+  const openaiApiKey = await readOpenAIApiKey(context);
+  const autoEnforceThreshold = await readAutoEnforceConfidenceThreshold(context);
+  return await moderateContribution(
+    context.reddit,
+    openaiApiKey,
+    id,
+    type,
+    autoEnforceThreshold
+  );
+}
+
+function buildManualModerationToastMessage(outcome: ModerationOutcome): string {
+  switch (outcome.status) {
+    case "removed":
+      return `Removed: ${outcome.removalReasonTitle}`;
+    case "triaged":
+      return `Sent to triage: ${outcome.removalReasonTitle}`;
+    case "no-removal-reason":
+      return "No removal reason applied.";
+    case "failed":
+      return "AI review failed.";
+  }
+}
+
+/**
  * Trigger registration for newly submitted posts.
  */
 Devvit.addTrigger({
@@ -61,15 +90,7 @@ Devvit.addTrigger({
       return;
     }
 
-    const openaiApiKey = await readOpenAIApiKey(context);
-    const autoEnforceThreshold = await readAutoEnforceConfidenceThreshold(context);
-    await moderateContribution(
-      context.reddit,
-      openaiApiKey,
-      post.id,
-      "post",
-      autoEnforceThreshold
-    );
+    await handleModeration(context, post.id, "post");
   },
 });
 
@@ -88,16 +109,36 @@ Devvit.addTrigger({
       return;
     }
 
-    const openaiApiKey = await readOpenAIApiKey(context);
-    const autoEnforceThreshold = await readAutoEnforceConfidenceThreshold(context);
-    await moderateContribution(
-      context.reddit,
-      openaiApiKey,
-      comment.id,
-      "comment",
-      autoEnforceThreshold
-    );
+    await handleModeration(context, comment.id, "comment");
   },
+});
+
+/**
+ * Menu item registration for manually triggering moderation from the UI.
+ */
+const types : ContributionType[] = ["comment", "post"];
+types.forEach(type => {
+  Devvit.addMenuItem({
+    label: "Stickler-bot",
+    location: type,
+    forUserType: "moderator", // Only show the menu item to moderators
+    onPress: async (event : MenuItemOnPressEvent, context) => {
+      const targetId : string | undefined = event.targetId;
+      if (targetId == null) {
+        const message = "MenuItemOnPressEvent is missing the targetId";
+        console.error(message);
+        context.ui.showToast(message);
+        return;
+      }
+
+      await handleModeration(context, targetId, type).then((outcome) => {
+        context.ui.showToast(buildManualModerationToastMessage(outcome));
+      }).catch((error) => {
+        console.error(error);
+        context.ui.showToast("An error occurred during AI review.");
+      });
+    },
+  });
 });
 
 /**
