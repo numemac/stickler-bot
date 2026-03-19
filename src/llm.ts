@@ -111,7 +111,6 @@ const STRICT_MODERATION_DECISION_RESPONSE_FORMAT = {
                 type: "string",
                 enum: [...VISIBLE_IDENTIFIER_TYPE_VALUES],
               },
-              uniqueItems: true,
             },
             evidenceSummary: {
               type: "string",
@@ -380,7 +379,7 @@ async function requestModerationCompletion(
     });
     return response.choices[0]?.message?.content ?? null;
   } catch (error) {
-    if (!isStructuredOutputUnsupportedError(error)) {
+    if (!isStructuredOutputRejectedError(error)) {
       throw error;
     }
 
@@ -665,14 +664,22 @@ function sanitizeForPrompt(
 }
 
 /**
- * Returns true when the model rejects strict structured output settings.
+ * Returns true when strict structured output is rejected by the model/API.
  */
-function isStructuredOutputUnsupportedError(error: unknown): boolean {
+function isStructuredOutputRejectedError(error: unknown): boolean {
   const text = collectErrorText(error).toLowerCase();
-  return (
+  const isUnsupported = (
     text.includes("response_format") &&
     text.includes("json_schema") &&
     (text.includes("not supported") || text.includes("unsupported"))
+  );
+  if (isUnsupported) {
+    return true;
+  }
+
+  return (
+    text.includes("response_format") &&
+    text.includes("invalid schema")
   );
 }
 
