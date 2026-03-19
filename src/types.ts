@@ -31,6 +31,12 @@ export type ModerationDecision = {
   evidence: ModerationDecisionEvidence;
 };
 
+export type ModerationOutcome =
+  | { status: "removed"; removalReasonTitle: string }
+  | { status: "triaged"; removalReasonTitle: string }
+  | { status: "no-removal-reason" }
+  | { status: "failed" };
+
 export type Contribution = {
   id: string;
   authorName: string;

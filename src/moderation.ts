@@ -9,7 +9,7 @@ import { SubredditInfo, type RedditAPIClient } from "@devvit/public-api";
 
 import { BOT_USERNAME_FALLBACK } from "./constants.js";
 import { buildLLMPrompt, getOpenAIResponse } from "./llm.js";
-import type { ContributionType } from "./types.js";
+import type { ContributionType, ModerationOutcome } from "./types.js";
 import {
   buildCommentContextForPrompt,
   buildParticipantKey,
@@ -70,11 +70,11 @@ export async function moderateContribution(
   type: ContributionType,
   autoEnforceConfidenceThreshold: number,
   depsOverrides: Partial<ModerateContributionDeps> = {}
-): Promise<boolean> {
+): Promise<ModerationOutcome> {
   const moderationKey = `${type}:${contributionId}`;
   if (inFlightModerations.has(moderationKey)) {
     console.log(`Skipping duplicate in-flight moderation for ${moderationKey}`);
-    return true;
+    return { status: "no-removal-reason" };
   }
 
   inFlightModerations.add(moderationKey);
@@ -82,7 +82,7 @@ export async function moderateContribution(
 
   try {
     const botUsername =
-      (await reddit.getCurrentUser())?.username?.toLowerCase() ??
+      (await reddit.getAppUser())?.username?.toLowerCase() ??
       BOT_USERNAME_FALLBACK;
 
     const contribution = await deps.fetchContribution(
@@ -93,29 +93,29 @@ export async function moderateContribution(
     );
     if (contribution == null) {
       console.error(`Could not fetch ${type} with id ${contributionId}`);
-      return false;
+      return { status: "failed" };
     }
 
     if (contribution.removed) {
       console.log(`Skipping ${moderationKey} because it is already removed.`);
-      return true;
+      return { status: "no-removal-reason" };
     }
 
     if (contribution.distinguishedBy != null) {
       console.log(`Skipping ${moderationKey} because it is distinguished.`);
-      return true;
+      return { status: "no-removal-reason" };
     }
 
     if (contribution.authorName.toLowerCase() === botUsername) {
-      console.log(`Skipping ${moderationKey} because it was created by the bot.`);
-      return true;
+      console.log(`Skipping ${moderationKey} because it was created by the bot (u/${contribution.authorName.toLowerCase()}).`);
+      return { status: "no-removal-reason" };
     }
 
     if (contribution.skipModerationReason != null) {
       console.log(
         `Skipping ${moderationKey}: ${contribution.skipModerationReason}`
       );
-      return true;
+      return { status: "no-removal-reason" };
     }
 
     const removalReasons = await reddit.getSubredditRemovalReasons(
@@ -125,7 +125,7 @@ export async function moderateContribution(
       console.error(
         `Subreddit r/${contribution.subredditName} has no removal reasons configured`
       );
-      return false;
+      return { status: "failed" };
     }
 
     const enforceableRemovalReasons = selectEnforceableRemovalReasons(removalReasons);
@@ -135,7 +135,7 @@ export async function moderateContribution(
       console.warn(
         `Skipping ${moderationKey}: all removal reasons are marked with ${AUTO_ENFORCEMENT_DISABLED_MARKER} (auto-enforcement disabled).`
       );
-      return true;
+      return { status: "no-removal-reason" };
     }
 
     if (disabledReasonCount > 0) {
@@ -166,7 +166,7 @@ export async function moderateContribution(
     );
     if (llmDecision == null) {
       console.error(`Failed to get a valid moderation decision for ${moderationKey}`);
-      return false;
+      return { status: "failed" };
     }
 
     const { removalReasonIndex, justification, confidence, needsHumanReview } =
@@ -177,7 +177,7 @@ export async function moderateContribution(
           confidence
         )}, needsHumanReview=${needsHumanReview})`
       );
-      return true;
+      return { status: "no-removal-reason" };
     }
 
     const violatedReasonEntry = enforceableRemovalReasons[removalReasonIndex];
@@ -185,7 +185,7 @@ export async function moderateContribution(
       console.error(
         `LLM returned out-of-range removalReasonIndex=${removalReasonIndex} for ${moderationKey} (enforceableReasonCount=${enforceableRemovalReasons.length})`
       );
-      return false;
+      return { status: "failed" };
     }
     const violatedReason = violatedReasonEntry.reason;
     const violatedReasonSourceIndex = violatedReasonEntry.originalIndex;
@@ -215,7 +215,7 @@ export async function moderateContribution(
           confidence
         )}, threshold=${formatConfidence(autoEnforceConfidenceThreshold)})`
       );
-      return true;
+      return { status: "triaged", removalReasonTitle: violatedReason.title };
     }
 
     if (confidence < autoEnforceConfidenceThreshold) {
@@ -235,7 +235,7 @@ export async function moderateContribution(
           confidence
         )} below threshold ${formatConfidence(autoEnforceConfidenceThreshold)} for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
       );
-      return true;
+      return { status: "triaged", removalReasonTitle: violatedReason.title };
     }
 
     const replyText = deps.buildRemovalReply(
@@ -267,10 +267,10 @@ export async function moderateContribution(
       `Removed ${moderationKey} for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
     );
 
-    return true;
+    return { status: "removed", removalReasonTitle: violatedReason.title };
   } catch (error) {
     console.error(`Unexpected moderation failure for ${moderationKey}`, error);
-    return false;
+    return { status: "failed" };
   } finally {
     inFlightModerations.delete(moderationKey);
   }
