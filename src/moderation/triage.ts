@@ -15,7 +15,10 @@ const MAX_TRIAGE_MODMAIL_BODY_CHARS = 8_000;
 const TRIAGE_MODMAIL_COOLDOWN_MS = 6 * 60 * 60 * 1_000;
 const TRIAGE_MODMAIL_CACHE_MAX_ENTRIES = 5_000;
 
-export type TriageSkipReason = "needs-human-review" | "below-threshold";
+export type TriageSkipReason =
+  | "needs-human-review"
+  | "below-threshold"
+  | "insufficient-evidence";
 
 /**
  * Sends a modmail triage notice when auto-enforcement is skipped.
@@ -41,7 +44,9 @@ export async function sendTriageModmail(
   const skipReasonText =
     skipReason === "needs-human-review"
       ? "Model requested human review"
-      : "Confidence below auto-enforcement threshold";
+      : skipReason === "below-threshold"
+        ? "Confidence below auto-enforcement threshold"
+        : "Insufficient direct identifier evidence for auto-enforcement";
   const triageKey = `${type}:${contribution.id}`;
 
   if (hasRecentTriageModmail(triageKey)) {

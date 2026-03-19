@@ -6,11 +6,29 @@
  */
 export type ContributionType = "post" | "comment";
 
+export type EvidenceBasis = "direct" | "inferred" | "unclear";
+
+export type VisibleIdentifierType =
+  | "username"
+  | "display_name"
+  | "profile_photo"
+  | "face"
+  | "location"
+  | "external_handle_or_link"
+  | "other_unique_identifier";
+
+export type ModerationDecisionEvidence = {
+  evidenceBasis: EvidenceBasis;
+  visibleIdentifierTypes: VisibleIdentifierType[];
+  evidenceSummary: string;
+};
+
 export type ModerationDecision = {
   removalReasonIndex: number | null;
   justification: string;
   confidence: number;
   needsHumanReview: boolean;
+  evidence: ModerationDecisionEvidence;
 };
 
 export type Contribution = {

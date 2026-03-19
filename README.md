@@ -14,7 +14,7 @@
 
 1. A new post is submitted, or a comment gets reported.
 2. The bot builds context and compares the contribution to enforceable subreddit Removal Reasons.
-3. The model returns a structured decision: matched rule or no violation, plus justification, confidence, and a human-review flag.
+3. The model returns a structured decision: matched rule or no violation, plus justification, confidence, a human-review flag, and evidence metadata.
 4. If confidence passes your threshold and human review is not requested, the bot posts a rule-linked removal reply and removes the item.
 5. If confidence is low or risk is ambiguous, the bot skips auto-enforcement and opens internal modmail triage.
 
@@ -35,6 +35,22 @@ If you want a removal reason available for moderators but not enforceable by the
 - `[~!]`
 
 When this marker is present, that reason is excluded from bot classification and auto-enforcement.
+
+## Require Direct Evidence Per Reason
+
+If you want a reason to remain enforceable, but only when the model can provide direct evidence, append this marker to the reason title or message:
+
+- `[~?]`
+
+Use this marker only for rules that depend on visible image evidence (for example screenshot redaction/privacy, faces/profile photos, or location identifiers), not text-only rules.
+
+When this marker is present, auto-enforcement is blocked unless all of the following are true:
+
+- The contribution includes at least one image URL for analysis
+- `evidence.evidenceBasis` is `direct`
+- `evidence.visibleIdentifierTypes` is non-empty
+
+If any condition fails, the bot skips auto-removal and sends modmail triage with skip reason `insufficient-evidence`.
 
 ## Alpha Pilot Communities
 

@@ -5,3 +5,4 @@ tests/**/*.js
 *.tsbuildinfo
 .test-dist
 notes
+debug
