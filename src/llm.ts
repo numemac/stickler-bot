@@ -12,6 +12,7 @@ import {
   MAX_REASON_CHARS,
   MAX_VISION_IMAGES,
   OPENAI_MODEL,
+  OPENAI_REASONING_EFFORT
 } from "./constants.js";
 import {
   sanitizeUntrustedText,
@@ -358,8 +359,9 @@ async function requestModerationCompletion(
 
   const requestBody = {
     model: OPENAI_MODEL,
-    temperature: 0,
-    max_completion_tokens: 300,
+    reasoning_effort: OPENAI_REASONING_EFFORT,
+    temperature: 1,
+    max_completion_tokens: 1200,
     messages: [
       {
         role: "system" as const,
