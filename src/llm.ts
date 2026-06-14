@@ -475,7 +475,7 @@ async function requestModerationCompletion(
     model: OPENAI_MODEL,
     reasoning_effort: OPENAI_REASONING_EFFORT,
     temperature: 1,
-    max_completion_tokens: 1200,
+    max_completion_tokens: 1800,
     messages: [
       {
         role: "system" as const,
