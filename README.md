@@ -15,7 +15,7 @@
 1. A new post is submitted, a comment gets reported, or a moderator manually triggers review from the `Stickler-bot` menu item on a post/comment.
 2. The bot builds context and compares the contribution to enforceable subreddit Removal Reasons.
 3. The model returns a structured decision: matched rule or no violation, plus justification, confidence, a human-review flag, and evidence metadata.
-4. If confidence passes your threshold and human review is not requested, the bot posts a rule-linked removal reply and removes the item.
+4. If confidence passes your threshold and human review is not requested, the bot posts a concise removal reply that cites the rule and explains the decision, then removes the item.
 5. If confidence is low or risk is ambiguous, the bot skips auto-enforcement and opens internal modmail triage.
 
 ## Enforcement Safety Gate
@@ -52,6 +52,38 @@ When this marker is present, auto-enforcement is blocked unless all of the follo
 
 If any condition fails, the bot skips auto-removal and sends modmail triage with skip reason `insufficient-evidence`.
 
+## Optional Rule Interpretation Context
+
+Some communities use local terminology or have recurring edge cases that are difficult to capture fully in short Removal Reasons. Stickler can optionally accept a JSON-formatted `rule-interpretation-context` setting to help the model apply existing subreddit Removal Reasons more consistently.
+
+This context is advisory only. It does not create new enforceable rules.
+
+Stickler still auto-enforces only when a configured Removal Reason is selected, confidence meets the configured threshold, human review is not requested, and all safety checks pass. If the interpretation context conflicts with a Removal Reason, the Removal Reason controls.
+
+Use this setting for local terms, rule-scope clarifications, common false-positive boundaries, and community-specific distinctions that affect rule interpretation.
+
+Do not use this setting for private moderator notes, user-specific information, ban history, or hidden policies. For best results, keep it consistent with public rules or wiki guidance and write it in clear language.
+
+## Optional Reference Links
+
+Some communities maintain public explainers that are useful when a removal turns on a recurring local concept. Stickler can optionally accept a JSON-formatted `reference-links` setting. When one configured reference directly clarifies a removal explanation, the model may select it and Stickler appends the link to the public reply.
+
+Reference links are explanatory resources only. They do not create new enforceable rules, and Stickler will not let the model invent arbitrary URLs.
+
+Example:
+
+```json
+[
+  {
+    "label": "Community explainer",
+    "url": "https://example.com/community-explainer",
+    "use_when": "Use when this directly clarifies the removal explanation."
+  }
+]
+```
+
+Configured reference URLs must use `https://`. Use narrow `use_when` guidance so links appear only when they are directly relevant.
+
 ## Alpha Pilot Communities
 
 `r/antinatalism` and `r/VeganDating` are the first subreddits alpha testing stickler-bot. They are intentionally distinct communities, which makes them useful pilots for validating portability across different moderation pressures while staying grounded in each subreddit's own written rules.
@@ -64,6 +96,8 @@ If any condition fails, the bot skips auto-removal and sends modmail triage with
 - Configure these installation settings:
   - `openai-api-key`
   - `auto-enforce-confidence-threshold` (0 to 1, default `0.8`)
+  - `rule-interpretation-context` (optional JSON object)
+  - `reference-links` (optional JSON array)
 
 ### Scope
 

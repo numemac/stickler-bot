@@ -25,10 +25,17 @@ export type ModerationDecisionEvidence = {
 
 export type ModerationDecision = {
   removalReasonIndex: number | null;
+  referenceLinkIndex: number | null;
   justification: string;
   confidence: number;
   needsHumanReview: boolean;
   evidence: ModerationDecisionEvidence;
+};
+
+export type ReferenceLink = {
+  label: string;
+  url: string;
+  useWhen: string;
 };
 
 export type ModerationOutcome =

@@ -42,3 +42,13 @@ test("sanitizePublicRemovalJustification normalizes curly apostrophes", () => {
   assert.match(result, /they'd repeatedly used personal attacks\./);
   assert.doesNotMatch(result, /\btheyd\b/);
 });
+
+test("sanitizePublicRemovalJustification strips model-supplied links", () => {
+  const result = sanitizePublicRemovalJustification(
+    "This was removed for the reason explained in [this link](https://bad.example/path).",
+    240
+  );
+
+  assert.match(result, /explained in this link\./);
+  assert.doesNotMatch(result, /https?:\/\//);
+});

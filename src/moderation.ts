@@ -9,7 +9,12 @@ import { SubredditInfo, type RedditAPIClient } from "@devvit/public-api";
 
 import { BOT_USERNAME_FALLBACK } from "./constants.js";
 import { buildLLMPrompt, getOpenAIResponse } from "./llm.js";
-import type { ContributionType, ModerationOutcome } from "./types.js";
+import type { RuleInterpretationContext } from "./ruleInterpretationContext.js";
+import type {
+  ContributionType,
+  ModerationOutcome,
+  ReferenceLink,
+} from "./types.js";
 import {
   buildCommentContextForPrompt,
   buildParticipantKey,
@@ -69,7 +74,9 @@ export async function moderateContribution(
   contributionId: string,
   type: ContributionType,
   autoEnforceConfidenceThreshold: number,
-  depsOverrides: Partial<ModerateContributionDeps> = {}
+  depsOverrides: Partial<ModerateContributionDeps> = {},
+  ruleInterpretationContext?: RuleInterpretationContext,
+  referenceLinks: ReferenceLink[] = []
 ): Promise<ModerationOutcome> {
   const moderationKey = `${type}:${contributionId}`;
   if (inFlightModerations.has(moderationKey)) {
@@ -155,14 +162,17 @@ export async function moderateContribution(
       enforceableRemovalReasons.map(({ reason }) => reason),
       contribution.contentForPrompt,
       subredditDescription,
-      currentDateTimeUtc
+      currentDateTimeUtc,
+      ruleInterpretationContext,
+      referenceLinks
     );
 
     const llmDecision = await deps.getOpenAIResponse(
       openaiApiKey,
       llmPrompt,
       enforceableRemovalReasons.length,
-      contribution.imageUrls
+      contribution.imageUrls,
+      referenceLinks.length
     );
     if (llmDecision == null) {
       console.error(`Failed to get a valid moderation decision for ${moderationKey}`);
@@ -242,7 +252,10 @@ export async function moderateContribution(
       type,
       contribution.subredditName,
       violatedReason,
-      justification
+      justification,
+      llmDecision.referenceLinkIndex == null
+        ? undefined
+        : referenceLinks[llmDecision.referenceLinkIndex]
     );
 
     try {
