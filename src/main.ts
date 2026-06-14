@@ -11,8 +11,20 @@ import {
   AUTO_ENFORCE_CONFIDENCE_THRESHOLD_SETTING,
   DEFAULT_AUTO_ENFORCE_CONFIDENCE_THRESHOLD,
   OPENAI_API_KEY_SETTING,
+  REFERENCE_LINKS_SETTING,
+  RULE_INTERPRETATION_CONTEXT_SETTING,
 } from "./constants.js";
 import { moderateContribution } from "./moderation.js";
+import {
+  parseReferenceLinks,
+  validateReferenceLinksSetting,
+} from "./referenceLinks.js";
+import {
+  parseRuleInterpretationContext,
+  validateRuleInterpretationContextSetting,
+} from "./ruleInterpretationContext.js";
+import type { ReferenceLink } from "./types.js";
+import type { RuleInterpretationContext } from "./ruleInterpretationContext.js";
 
 Devvit.configure({
   redditAPI: true,
@@ -45,6 +57,30 @@ Devvit.addSettings([
       }
     },
   },
+  {
+    name: RULE_INTERPRETATION_CONTEXT_SETTING,
+    type: "paragraph",
+    label: "Optional Rule Interpretation Context JSON",
+    defaultValue: "",
+    scope: SettingScope.Installation,
+    helpText:
+      "Optional JSON object used to interpret existing Removal Reasons. This does not create new enforceable rules.",
+    onValidate({ value }) {
+      return validateRuleInterpretationContextSetting(value);
+    },
+  },
+  {
+    name: REFERENCE_LINKS_SETTING,
+    type: "paragraph",
+    label: "Optional Reference Links JSON",
+    defaultValue: "",
+    scope: SettingScope.Installation,
+    helpText:
+      "Optional JSON array of explanatory links the bot may cite when directly relevant. Links do not create enforceable rules.",
+    onValidate({ value }) {
+      return validateReferenceLinksSetting(value);
+    },
+  },
 ]);
 
 /**
@@ -53,12 +89,18 @@ Devvit.addSettings([
 async function handleModeration(context: any, id: string, type: ContributionType): Promise<ModerationOutcome> {
   const openaiApiKey = await readOpenAIApiKey(context);
   const autoEnforceThreshold = await readAutoEnforceConfidenceThreshold(context);
+  const ruleInterpretationContext =
+    await readRuleInterpretationContext(context);
+  const referenceLinks = await readReferenceLinks(context);
   return await moderateContribution(
     context.reddit,
     openaiApiKey,
     id,
     type,
-    autoEnforceThreshold
+    autoEnforceThreshold,
+    undefined,
+    ruleInterpretationContext,
+    referenceLinks
   );
 }
 
@@ -178,6 +220,44 @@ async function readAutoEnforceConfidenceThreshold(context: {
   }
 
   return parsed;
+}
+
+/**
+ * Reads optional JSON context used to interpret configured removal reasons.
+ */
+async function readRuleInterpretationContext(context: {
+  settings: { get(name: string): Promise<unknown> };
+}): Promise<RuleInterpretationContext | undefined> {
+  const rawValue = await context.settings.get(
+    RULE_INTERPRETATION_CONTEXT_SETTING
+  );
+  const result = parseRuleInterpretationContext(rawValue);
+
+  if (!result.ok) {
+    console.warn(
+      `Ignoring invalid Rule Interpretation Context setting: ${result.error}`
+    );
+    return undefined;
+  }
+
+  return result.context;
+}
+
+/**
+ * Reads optional configured links the model can select for public replies.
+ */
+async function readReferenceLinks(context: {
+  settings: { get(name: string): Promise<unknown> };
+}): Promise<ReferenceLink[]> {
+  const rawValue = await context.settings.get(REFERENCE_LINKS_SETTING);
+  const result = parseReferenceLinks(rawValue);
+
+  if (!result.ok) {
+    console.warn(`Ignoring invalid Reference Links setting: ${result.error}`);
+    return [];
+  }
+
+  return result.referenceLinks;
 }
 
 export default Devvit;

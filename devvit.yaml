@@ -10,3 +10,13 @@ settings:
       type: number
       label: "Auto-Enforce Confidence Threshold (0 to 1)"
       defaultValue: 0.8
+    rule-interpretation-context:
+      type: paragraph
+      label: "Optional Rule Interpretation Context JSON"
+      defaultValue: ""
+      helpText: "Optional JSON object used to interpret existing Removal Reasons. This does not create new enforceable rules."
+    reference-links:
+      type: paragraph
+      label: "Optional Reference Links JSON"
+      defaultValue: ""
+      helpText: "Optional JSON array of explanatory links the bot may cite when directly relevant. Links do not create enforceable rules."

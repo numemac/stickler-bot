@@ -64,7 +64,11 @@ export function sanitizePublicRemovalJustification(
     .split(/\r?\n/)
     .filter((line) => !line.trimStart().startsWith(">"))
     .join(" ");
-  const base = sanitizeModelJustification(withoutBlockquotes, expandedLimit);
+  const withoutMarkdownLinks = withoutBlockquotes.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/gi,
+    "$1"
+  );
+  const base = sanitizeModelJustification(withoutMarkdownLinks, expandedLimit);
   const withoutQuotedSnippets = base
     .replace(/“[^”\n]{1,280}”/g, "")
     .replace(/"[^"\n]{1,280}"/g, "")
@@ -73,6 +77,7 @@ export function sanitizePublicRemovalJustification(
   const normalizedApostrophes = withoutQuotedSnippets.replace(/[‘’]/g, "'");
   const cleaned = toSingleLine(
     normalizedApostrophes
+      .replace(/https?:\/\/[^\s)]+/gi, "")
       .replace(/[“”"`]/g, "")
       .replace(/\s+([,.;:!?])/g, "$1")
       .replace(/\(\s*\)/g, "")
