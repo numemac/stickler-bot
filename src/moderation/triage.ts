@@ -8,6 +8,7 @@ import {
 } from "../text.js";
 import type { Contribution, ContributionType } from "../types.js";
 import { formatConfidence } from "./confidence.js";
+import { createModerationLogger } from "./logging.js";
 
 const triageModmailSentAt = new Map<string, number>();
 const MAX_TRIAGE_MODMAIL_SUBJECT_CHARS = 100;
@@ -48,11 +49,10 @@ export async function sendTriageModmail(
         ? "Confidence below auto-enforcement threshold"
         : "Insufficient direct identifier evidence for auto-enforcement";
   const triageKey = `${type}:${contribution.id}`;
+  const logger = createModerationLogger(triageKey);
 
   if (hasRecentTriageModmail(triageKey)) {
-    console.log(
-      `Skipping duplicate triage modmail for ${triageKey} (cooldown active)`
-    );
+    logger.log("Skipping duplicate triage modmail (cooldown active)");
     return;
   }
 
@@ -98,14 +98,9 @@ export async function sendTriageModmail(
       to: null,
     });
     rememberTriageModmail(triageKey);
-    console.log(
-      `Created modmail triage conversation for ${type}:${contribution.id} (${skipReason})`
-    );
+    logger.log(`Created modmail triage conversation (${skipReason})`);
   } catch (error) {
-    console.error(
-      `Failed to create modmail triage conversation for ${type}:${contribution.id}`,
-      error
-    );
+    logger.error("Failed to create modmail triage conversation", error);
   }
 }
 

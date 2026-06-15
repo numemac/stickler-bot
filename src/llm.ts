@@ -69,6 +69,30 @@ const VISIBLE_IDENTIFIER_TYPE_VALUES = [
   "other_unique_identifier",
 ] as const;
 
+type LLMLogger = {
+  warn(message: string, error?: unknown): void;
+  error(message: string, error?: unknown): void;
+};
+
+const DEFAULT_LLM_LOGGER: LLMLogger = {
+  warn(message, error) {
+    if (error === undefined) {
+      console.warn(message);
+      return;
+    }
+
+    console.warn(message, error);
+  },
+  error(message, error) {
+    if (error === undefined) {
+      console.error(message);
+      return;
+    }
+
+    console.error(message, error);
+  },
+};
+
 const STRICT_MODERATION_DECISION_RESPONSE_FORMAT = {
   type: "json_schema" as const,
   json_schema: {
@@ -392,10 +416,11 @@ export async function getOpenAIResponse(
   prompt: string,
   reasonCount: number,
   imageUrls: readonly string[] = [],
-  referenceLinkCount = 0
+  referenceLinkCount = 0,
+  logger: LLMLogger = DEFAULT_LLM_LOGGER
 ): Promise<ModerationDecision | null> {
   if (!openaiApiKey || openaiApiKey.trim().length === 0) {
-    console.error("OpenAI API key is not set");
+    logger.error("OpenAI API key is not set");
     return null;
   }
 
@@ -409,17 +434,19 @@ export async function getOpenAIResponse(
       const responseContent = await requestModerationCompletion(
         openai,
         prompt,
-        activeImageUrls
+        activeImageUrls,
+        logger
       );
       if (responseContent == null) {
-        console.error("OpenAI response is missing content");
+        logger.error("OpenAI response is missing content");
         return null;
       }
 
       return parseModerationDecision(
         responseContent,
         reasonCount,
-        referenceLinkCount
+        referenceLinkCount,
+        logger
       );
     } catch (error) {
       if (activeImageUrls.length > 0) {
@@ -429,7 +456,7 @@ export async function getOpenAIResponse(
             (url) => !areEquivalentUrls(url, failedImageUrl)
           );
           if (remainingImageUrls.length < activeImageUrls.length) {
-            console.warn(
+            logger.warn(
               `OpenAI could not fetch image URL, retrying without it: ${failedImageUrl}`
             );
             activeImageUrls = remainingImageUrls;
@@ -438,7 +465,7 @@ export async function getOpenAIResponse(
         }
 
         if (isInvalidImageUrlError(error)) {
-          console.warn(
+          logger.warn(
             "OpenAI rejected one or more image URLs; retrying moderation without images."
           );
           activeImageUrls = [];
@@ -446,7 +473,7 @@ export async function getOpenAIResponse(
         }
       }
 
-      console.error("Error getting response from OpenAI", error);
+      logger.error("Error getting response from OpenAI", error);
       return null;
     }
   }
@@ -458,7 +485,8 @@ export async function getOpenAIResponse(
 async function requestModerationCompletion(
   openai: OpenAI,
   prompt: string,
-  imageUrls: readonly string[]
+  imageUrls: readonly string[],
+  logger: LLMLogger
 ): Promise<string | null> {
   const contentParts = [
     { type: "text" as const, text: prompt },
@@ -499,7 +527,7 @@ async function requestModerationCompletion(
       throw error;
     }
 
-    console.warn(
+    logger.warn(
       "OpenAI model rejected strict json_schema output; retrying with json_object."
     );
     const response = await openai.chat.completions.create({
@@ -610,9 +638,10 @@ function normalizeForComparison(url: string): string {
 function parseModerationDecision(
   responseContent: string,
   reasonCount: number,
-  referenceLinkCount = 0
+  referenceLinkCount = 0,
+  logger: LLMLogger = DEFAULT_LLM_LOGGER
 ): ModerationDecision | null {
-  const parsed = parseJSONObject(responseContent);
+  const parsed = parseJSONObject(responseContent, logger);
   if (parsed == null) {
     return null;
   }
@@ -625,27 +654,28 @@ function parseModerationDecision(
   const evidenceRaw = parsed["evidence"];
 
   if (!isValidRemovalReasonIndex(removalReasonIndex, reasonCount)) {
-    console.error("LLM JSON returned an invalid removalReasonIndex");
+    logger.error("LLM JSON returned an invalid removalReasonIndex");
     return null;
   }
 
   const referenceLinkIndex = parseReferenceLinkIndex(
     referenceLinkIndexRaw,
-    referenceLinkCount
+    referenceLinkCount,
+    logger
   );
 
   if (typeof justificationRaw !== "string") {
-    console.error("LLM JSON justification is missing or not a string");
+    logger.error("LLM JSON justification is missing or not a string");
     return null;
   }
 
   if (!isValidConfidence(confidenceRaw)) {
-    console.error("LLM JSON confidence is missing or out of range");
+    logger.error("LLM JSON confidence is missing or out of range");
     return null;
   }
 
   if (typeof needsHumanReviewRaw !== "boolean") {
-    console.error("LLM JSON needsHumanReview is missing or not a boolean");
+    logger.error("LLM JSON needsHumanReview is missing or not a boolean");
     return null;
   }
 
@@ -654,7 +684,7 @@ function parseModerationDecision(
   let needsHumanReview =
     needsHumanReviewRaw || confidenceRaw < NEEDS_HUMAN_REVIEW_CONFIDENCE_BAR;
   if (!needsHumanReviewRaw && confidenceRaw < NEEDS_HUMAN_REVIEW_CONFIDENCE_BAR) {
-    console.warn(
+    logger.warn(
       `LLM returned needsHumanReview=false below confidence bar ${NEEDS_HUMAN_REVIEW_CONFIDENCE_BAR.toFixed(
         2
       )}; overriding to true.`
@@ -663,7 +693,7 @@ function parseModerationDecision(
 
   const justification = sanitizeUntrustedText(justificationRaw, MAX_JUSTIFICATION_CHARS);
   if (justification.length === 0) {
-    console.error("LLM JSON justification was empty");
+    logger.error("LLM JSON justification was empty");
     return null;
   }
 
@@ -812,7 +842,10 @@ function isStructuredOutputRejectedError(error: unknown): boolean {
  * Parses a response into a plain JSON object, with a fallback extraction pass
  * for wrapped content.
  */
-function parseJSONObject(content: string): Record<string, unknown> | null {
+function parseJSONObject(
+  content: string,
+  logger: LLMLogger
+): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(content);
     if (isRecord(parsed)) {
@@ -828,7 +861,7 @@ function parseJSONObject(content: string): Record<string, unknown> | null {
     }
   } catch {}
 
-  console.error("Could not parse model response as JSON object");
+  logger.error("Could not parse model response as JSON object");
   return null;
 }
 
@@ -874,7 +907,8 @@ function isValidRemovalReasonIndex(
  */
 function parseReferenceLinkIndex(
   value: unknown,
-  referenceLinkCount: number
+  referenceLinkCount: number,
+  logger: LLMLogger
 ): number | null {
   if (value == null) {
     return null;
@@ -886,7 +920,7 @@ function parseReferenceLinkIndex(
     value < 0 ||
     value >= referenceLinkCount
   ) {
-    console.warn("Ignoring invalid referenceLinkIndex from LLM response");
+    logger.warn("Ignoring invalid referenceLinkIndex from LLM response");
     return null;
   }
 

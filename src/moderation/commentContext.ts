@@ -2,6 +2,7 @@ import { type RedditAPIClient } from "@devvit/public-api";
 
 import { MAX_CONTENT_CHARS } from "../constants.js";
 import { sanitizeUntrustedText } from "../text.js";
+import { createModerationLogger } from "./logging.js";
 
 const MAX_COMMENT_CONTEXT_ANCESTORS_TO_FETCH = 24;
 const MAX_COMMENT_CONTEXT_ANCESTORS_IN_PROMPT = 8;
@@ -42,6 +43,7 @@ export async function buildCommentContextForPrompt(
   reddit: RedditAPIClient,
   targetComment: PromptContextComment
 ): Promise<string> {
+  const logger = createModerationLogger(`comment:${targetComment.id}`);
   const { ancestorsClosestFirst, truncatedByFetchLimit } =
     await fetchCommentAncestors(reddit, targetComment);
 
@@ -61,7 +63,7 @@ export async function buildCommentContextForPrompt(
     const post = await reddit.getPostById(targetComment.postId);
     postContext = toPromptContextPost(post);
   } catch (error) {
-    console.warn(
+    logger.warn(
       `Could not fetch post context ${targetComment.postId} while building comment context for ${targetComment.id}`,
       error
     );
@@ -281,6 +283,7 @@ async function fetchCommentAncestors(
   ancestorsClosestFirst: PromptContextComment[];
   truncatedByFetchLimit: boolean;
 }> {
+  const logger = createModerationLogger(`comment:${targetComment.id}`);
   const ancestorsClosestFirst: PromptContextComment[] = [];
   const seenCommentIds = new Set<string>([targetComment.id]);
   let currentComment = targetComment;
@@ -303,7 +306,7 @@ async function fetchCommentAncestors(
       currentComment = parentSnapshot;
       fetchedCount += 1;
     } catch (error) {
-      console.warn(
+      logger.warn(
         `Could not fetch parent comment ${parentId} while building context for ${targetComment.id}`,
         error
       );

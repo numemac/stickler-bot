@@ -33,13 +33,22 @@ import {
 } from "./moderation/removalReasonToggle.js";
 import { buildRemovalReply } from "./moderation/removalReply.js";
 import { evaluateDecisionSafety } from "./moderation/decisionSafety.js";
+import {
+  createModerationLogger,
+  formatModerationOutcomeSummary,
+  type ModerationLogger,
+} from "./moderation/logging.js";
 import { sendTriageModmail } from "./moderation/triage.js";
 
 const inFlightModerations = new Set<string>();
 
 type ModerateContributionDeps = {
   fetchContribution: typeof fetchContribution;
-  fetchSubredditDescription: typeof fetchSubredditDescription;
+  fetchSubredditDescription: (
+    reddit: RedditAPIClient,
+    subredditName: string,
+    logger?: ModerationLogger
+  ) => Promise<string | undefined>;
   buildLLMPrompt: typeof buildLLMPrompt;
   getOpenAIResponse: typeof getOpenAIResponse;
   sendTriageModmail: typeof sendTriageModmail;
@@ -79,13 +88,21 @@ export async function moderateContribution(
   referenceLinks: ReferenceLink[] = []
 ): Promise<ModerationOutcome> {
   const moderationKey = `${type}:${contributionId}`;
+  const logger = createModerationLogger(moderationKey);
   if (inFlightModerations.has(moderationKey)) {
-    console.log(`Skipping duplicate in-flight moderation for ${moderationKey}`);
-    return { status: "no-removal-reason" };
+    const duplicateOutcome: ModerationOutcome = { status: "no-removal-reason" };
+    logger.log("Skipping duplicate in-flight moderation");
+    logger.log(formatModerationOutcomeSummary(duplicateOutcome));
+    return duplicateOutcome;
   }
 
   inFlightModerations.add(moderationKey);
   const deps = resolveModerationDeps(depsOverrides);
+  let outcome: ModerationOutcome | undefined;
+  const complete = (nextOutcome: ModerationOutcome): ModerationOutcome => {
+    outcome = nextOutcome;
+    return nextOutcome;
+  };
 
   try {
     const botUsername =
@@ -99,61 +116,63 @@ export async function moderateContribution(
       botUsername
     );
     if (contribution == null) {
-      console.error(`Could not fetch ${type} with id ${contributionId}`);
-      return { status: "failed" };
+      logger.error(`Could not fetch ${type} with id ${contributionId}`);
+      return complete({ status: "failed" });
     }
 
     if (contribution.removed) {
-      console.log(`Skipping ${moderationKey} because it is already removed.`);
-      return { status: "no-removal-reason" };
+      logger.log("Skipping because it is already removed.");
+      return complete({ status: "no-removal-reason" });
     }
 
     if (contribution.distinguishedBy != null) {
-      console.log(`Skipping ${moderationKey} because it is distinguished.`);
-      return { status: "no-removal-reason" };
+      logger.log("Skipping because it is distinguished.");
+      return complete({ status: "no-removal-reason" });
     }
 
     if (contribution.authorName.toLowerCase() === botUsername) {
-      console.log(`Skipping ${moderationKey} because it was created by the bot (u/${contribution.authorName.toLowerCase()}).`);
-      return { status: "no-removal-reason" };
+      logger.log(
+        `Skipping because it was created by the bot (u/${contribution.authorName.toLowerCase()}).`
+      );
+      return complete({ status: "no-removal-reason" });
     }
 
     if (contribution.skipModerationReason != null) {
-      console.log(
-        `Skipping ${moderationKey}: ${contribution.skipModerationReason}`
-      );
-      return { status: "no-removal-reason" };
+      logger.log(`Skipping: ${contribution.skipModerationReason}`);
+      return complete({ status: "no-removal-reason" });
     }
 
     const removalReasons = await reddit.getSubredditRemovalReasons(
       contribution.subredditName
     );
     if (removalReasons.length === 0) {
-      console.error(
+      logger.error(
         `Subreddit r/${contribution.subredditName} has no removal reasons configured`
       );
-      return { status: "failed" };
+      return complete({ status: "failed" });
     }
 
-    const enforceableRemovalReasons = selectEnforceableRemovalReasons(removalReasons);
+    const enforceableRemovalReasons =
+      selectEnforceableRemovalReasons(removalReasons);
     const disabledReasonCount =
       removalReasons.length - enforceableRemovalReasons.length;
     if (enforceableRemovalReasons.length === 0) {
-      console.warn(
-        `Skipping ${moderationKey}: all removal reasons are marked with ${AUTO_ENFORCEMENT_DISABLED_MARKER} (auto-enforcement disabled).`
+      logger.warn(
+        `Skipping: all removal reasons are marked with ${AUTO_ENFORCEMENT_DISABLED_MARKER} (auto-enforcement disabled).`
       );
-      return { status: "no-removal-reason" };
+      return complete({ status: "no-removal-reason" });
     }
 
     if (disabledReasonCount > 0) {
-      console.log(
-        `Excluded ${disabledReasonCount} removal reason(s) from LLM classification for ${moderationKey} via marker ${AUTO_ENFORCEMENT_DISABLED_MARKER}.`
+      logger.log(
+        `Excluded ${disabledReasonCount} removal reason(s) from LLM classification via marker ${AUTO_ENFORCEMENT_DISABLED_MARKER}.`
       );
     }
 
     const subredditDescription = await deps.fetchSubredditDescription(
       reddit,
-      contribution.subredditName
+      contribution.subredditName,
+      logger
     );
     const currentDateTimeUtc = deps.now();
 
@@ -172,30 +191,31 @@ export async function moderateContribution(
       llmPrompt,
       enforceableRemovalReasons.length,
       contribution.imageUrls,
-      referenceLinks.length
+      referenceLinks.length,
+      logger
     );
     if (llmDecision == null) {
-      console.error(`Failed to get a valid moderation decision for ${moderationKey}`);
-      return { status: "failed" };
+      logger.error("Failed to get a valid moderation decision");
+      return complete({ status: "failed" });
     }
 
     const { removalReasonIndex, justification, confidence, needsHumanReview } =
       llmDecision;
     if (removalReasonIndex === null) {
-      console.log(
-        `No violation detected for ${moderationKey} (confidence=${formatConfidence(
+      logger.log(
+        `No violation detected (confidence=${formatConfidence(
           confidence
         )}, needsHumanReview=${needsHumanReview})`
       );
-      return { status: "no-removal-reason" };
+      return complete({ status: "no-removal-reason" });
     }
 
     const violatedReasonEntry = enforceableRemovalReasons[removalReasonIndex];
     if (violatedReasonEntry == null) {
-      console.error(
-        `LLM returned out-of-range removalReasonIndex=${removalReasonIndex} for ${moderationKey} (enforceableReasonCount=${enforceableRemovalReasons.length})`
+      logger.error(
+        `LLM returned out-of-range removalReasonIndex=${removalReasonIndex} (enforceableReasonCount=${enforceableRemovalReasons.length})`
       );
-      return { status: "failed" };
+      return complete({ status: "failed" });
     }
     const violatedReason = violatedReasonEntry.reason;
     const violatedReasonSourceIndex = violatedReasonEntry.originalIndex;
@@ -220,12 +240,15 @@ export async function moderateContribution(
         effectiveNeedsHumanReview,
         humanReviewSkipReason
       );
-      console.log(
-        `Flagged ${moderationKey} for human review (${humanReviewSkipReason}): reason [${violatedReasonSourceIndex}] ${violatedReason.title} (confidence=${formatConfidence(
+      logger.log(
+        `Flagged for human review (${humanReviewSkipReason}): reason [${violatedReasonSourceIndex}] ${violatedReason.title} (confidence=${formatConfidence(
           confidence
         )}, threshold=${formatConfidence(autoEnforceConfidenceThreshold)})`
       );
-      return { status: "triaged", removalReasonTitle: violatedReason.title };
+      return complete({
+        status: "triaged",
+        removalReasonTitle: violatedReason.title,
+      });
     }
 
     if (confidence < autoEnforceConfidenceThreshold) {
@@ -240,12 +263,15 @@ export async function moderateContribution(
         needsHumanReview,
         "below-threshold"
       );
-      console.log(
-        `Not auto-enforcing ${moderationKey}: confidence ${formatConfidence(
+      logger.log(
+        `Not auto-enforcing: confidence ${formatConfidence(
           confidence
         )} below threshold ${formatConfidence(autoEnforceConfidenceThreshold)} for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
       );
-      return { status: "triaged", removalReasonTitle: violatedReason.title };
+      return complete({
+        status: "triaged",
+        removalReasonTitle: violatedReason.title,
+      });
     }
 
     const replyText = deps.buildRemovalReply(
@@ -268,23 +294,29 @@ export async function moderateContribution(
       // Do not sticky if the contribution is a comment
       reply.distinguish(type == "post" ? true : false);
 
-      console.log(
-        `Posted removal comment ${reply.id} on ${moderationKey} for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
+      logger.log(
+        `Posted removal comment ${reply.id} for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
       );
     } catch (error) {
-      console.error(`Failed to post removal comment on ${moderationKey}`, error);
+      logger.error("Failed to post removal comment", error);
     }
 
     await reddit.remove(contribution.id, false);
-    console.log(
-      `Removed ${moderationKey} for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
+    logger.log(
+      `Removed for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
     );
 
-    return { status: "removed", removalReasonTitle: violatedReason.title };
+    return complete({
+      status: "removed",
+      removalReasonTitle: violatedReason.title,
+    });
   } catch (error) {
-    console.error(`Unexpected moderation failure for ${moderationKey}`, error);
-    return { status: "failed" };
+    logger.error("Unexpected moderation failure", error);
+    return complete({ status: "failed" });
   } finally {
+    if (outcome != null) {
+      logger.log(formatModerationOutcomeSummary(outcome));
+    }
     inFlightModerations.delete(moderationKey);
   }
 }
@@ -306,17 +338,21 @@ export const __moderationTestables = {
  */
 async function fetchSubredditDescription(
   reddit: RedditAPIClient,
-  subredditName: string
+  subredditName: string,
+  logger?: ModerationLogger
 ): Promise<string | undefined> {
   try {
     const subredditInfo : SubredditInfo = await reddit.getSubredditInfoByName(subredditName);
     const description = subredditInfo.description?.markdown?.trim();
     return description != null && description.length > 0 ? description : undefined;
   } catch (error) {
-    console.warn(
-      `Could not fetch subreddit description for r/${subredditName}; continuing without it.`,
-      error
-    );
+    const message =
+      `Could not fetch subreddit description for r/${subredditName}; continuing without it.`;
+    if (logger == null) {
+      console.warn(message, error);
+    } else {
+      logger.warn(message, error);
+    }
     return undefined;
   }
 }
