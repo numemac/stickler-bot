@@ -30,4 +30,15 @@ test("formatModerationOutcomeSummary includes status and removal reason when pre
     }),
     'Completed moderation (status=removed, removalReason="No harassment")'
   );
+
+  assert.equal(
+    formatModerationOutcomeSummary(
+      {
+        status: "triaged",
+        removalReasonTitle: "Stay on-topic",
+      },
+      1234
+    ),
+    'Completed moderation (status=triaged, removalReason="Stay on-topic", durationMs=1234)'
+  );
 });

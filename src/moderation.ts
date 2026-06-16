@@ -98,6 +98,7 @@ export async function moderateContribution(
 
   inFlightModerations.add(moderationKey);
   const deps = resolveModerationDeps(depsOverrides);
+  const startedAtMs = Date.now();
   let outcome: ModerationOutcome | undefined;
   const complete = (nextOutcome: ModerationOutcome): ModerationOutcome => {
     outcome = nextOutcome;
@@ -105,6 +106,8 @@ export async function moderateContribution(
   };
 
   try {
+    logger.log("Started moderation");
+
     const botUsername =
       (await reddit.getAppUser())?.username?.toLowerCase() ??
       BOT_USERNAME_FALLBACK;
@@ -186,6 +189,9 @@ export async function moderateContribution(
       referenceLinks
     );
 
+    logger.log(
+      `Requesting LLM classification (enforceableReasonCount=${enforceableRemovalReasons.length}, imageCount=${contribution.imageUrls.length}, referenceLinkCount=${referenceLinks.length})`
+    );
     const llmDecision = await deps.getOpenAIResponse(
       openaiApiKey,
       llmPrompt,
@@ -201,6 +207,11 @@ export async function moderateContribution(
 
     const { removalReasonIndex, justification, confidence, needsHumanReview } =
       llmDecision;
+    logger.log(
+      `Received LLM classification (removalReasonIndex=${removalReasonIndex}, confidence=${formatConfidence(
+        confidence
+      )}, needsHumanReview=${needsHumanReview})`
+    );
     if (removalReasonIndex === null) {
       logger.log(
         `No violation detected (confidence=${formatConfidence(
@@ -229,6 +240,9 @@ export async function moderateContribution(
     const humanReviewSkipReason = decisionSafety.skipReason ?? "needs-human-review";
 
     if (effectiveNeedsHumanReview) {
+      logger.log(
+        `Sending triage modmail (${humanReviewSkipReason}) for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
+      );
       await deps.sendTriageModmail(
         reddit,
         contribution,
@@ -252,6 +266,9 @@ export async function moderateContribution(
     }
 
     if (confidence < autoEnforceConfidenceThreshold) {
+      logger.log(
+        `Sending triage modmail (below-threshold) for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
+      );
       await deps.sendTriageModmail(
         reddit,
         contribution,
@@ -285,6 +302,9 @@ export async function moderateContribution(
     );
 
     try {
+      logger.log(
+        `Posting removal comment for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
+      );
       const reply = await reddit.submitComment({
         id: contribution.id,
         text: replyText,
@@ -292,7 +312,7 @@ export async function moderateContribution(
       });
 
       // Do not sticky if the contribution is a comment
-      reply.distinguish(type == "post" ? true : false);
+      await reply.distinguish(type == "post" ? true : false);
 
       logger.log(
         `Posted removal comment ${reply.id} for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
@@ -301,6 +321,9 @@ export async function moderateContribution(
       logger.error("Failed to post removal comment", error);
     }
 
+    logger.log(
+      `Removing contribution for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
+    );
     await reddit.remove(contribution.id, false);
     logger.log(
       `Removed for reason [${violatedReasonSourceIndex}] ${violatedReason.title}`
@@ -315,7 +338,9 @@ export async function moderateContribution(
     return complete({ status: "failed" });
   } finally {
     if (outcome != null) {
-      logger.log(formatModerationOutcomeSummary(outcome));
+      logger.log(
+        formatModerationOutcomeSummary(outcome, Date.now() - startedAtMs)
+      );
     }
     inFlightModerations.delete(moderationKey);
   }

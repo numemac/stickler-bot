@@ -58,11 +58,15 @@ export function createModerationLogger(
  * Builds the terminal status line emitted for every completed moderation run.
  */
 export function formatModerationOutcomeSummary(
-  outcome: ModerationOutcome
+  outcome: ModerationOutcome,
+  durationMs?: number
 ): string {
+  const durationSuffix =
+    durationMs == null ? "" : `, durationMs=${Math.max(0, durationMs)}`;
+
   if (outcome.status === "removed" || outcome.status === "triaged") {
-    return `Completed moderation (status=${outcome.status}, removalReason="${outcome.removalReasonTitle}")`;
+    return `Completed moderation (status=${outcome.status}, removalReason="${outcome.removalReasonTitle}"${durationSuffix})`;
   }
 
-  return `Completed moderation (status=${outcome.status})`;
+  return `Completed moderation (status=${outcome.status}${durationSuffix})`;
 }
