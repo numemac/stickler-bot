@@ -186,7 +186,9 @@ export async function moderateContribution(
       subredditDescription,
       currentDateTimeUtc,
       ruleInterpretationContext,
-      referenceLinks
+      referenceLinks,
+      autoEnforceConfidenceThreshold,
+      contribution.imageUrls.length > 0
     );
 
     logger.log(
@@ -198,7 +200,8 @@ export async function moderateContribution(
       enforceableRemovalReasons.length,
       contribution.imageUrls,
       referenceLinks.length,
-      logger
+      logger,
+      autoEnforceConfidenceThreshold
     );
     if (llmDecision == null) {
       logger.error("Failed to get a valid moderation decision");
@@ -218,6 +221,23 @@ export async function moderateContribution(
           confidence
         )}, needsHumanReview=${needsHumanReview})`
       );
+      if (needsHumanReview) {
+        await deps.sendTriageModmail(
+          reddit,
+          contribution,
+          type,
+          null,
+          justification,
+          confidence,
+          autoEnforceConfidenceThreshold,
+          needsHumanReview,
+          "needs-human-review"
+        );
+        return complete({
+          status: "triaged",
+          removalReasonTitle: "No rule selected",
+        });
+      }
       return complete({ status: "no-removal-reason" });
     }
 

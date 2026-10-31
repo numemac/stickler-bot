@@ -19,6 +19,7 @@ test("buildRemovalReply centers the public justification without repeating the f
   assert.match(reply, /\*\*Rule applied:\*\* No harassment/);
   assert.match(reply, /\*\*Why this was removed:\*\*\nThis targets people rather than engaging the idea\./);
   assert.doesNotMatch(reply, /This long removal reason should stay in the rules page/);
+  assert.match(reply, /This decision was made automatically\. If you believe it's a mistake/);
 });
 
 test("buildRemovalReply appends configured reference link markdown", () => {

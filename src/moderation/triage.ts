@@ -28,7 +28,7 @@ export async function sendTriageModmail(
   reddit: RedditAPIClient,
   contribution: Contribution,
   type: ContributionType,
-  reason: RemovalReason,
+  reason: RemovalReason | null,
   justification: string,
   confidence: number,
   autoEnforceConfidenceThreshold: number,
@@ -38,7 +38,10 @@ export async function sendTriageModmail(
   const safeSubredditName = toSingleLine(
     sanitizeUntrustedText(contribution.subredditName, 128)
   );
-  const safeReasonTitle = toSingleLine(sanitizeUntrustedText(reason.title, 256));
+  const safeReasonTitle =
+    reason == null
+      ? "None selected; the model was unsure whether a rule applies"
+      : toSingleLine(sanitizeUntrustedText(reason.title, 256));
   const safeAuthorName = toSingleLine(sanitizeUntrustedText(contribution.authorName, 128));
   const safeJustification = sanitizeModelJustification(justification, 1_200);
   const contributionUrl = toAbsoluteRedditUrl(contribution.permalink);

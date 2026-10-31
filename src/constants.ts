@@ -15,6 +15,8 @@ export const REFERENCE_LINKS_SETTING = "reference-links";
 
 export const OPENAI_MODEL = "gpt-5.4";
 export const OPENAI_REASONING_EFFORT : ReasoningEffort = "medium";
+// Reasoning shares this limit with the answer; too low a limit cuts the JSON off.
+export const OPENAI_MAX_COMPLETION_TOKENS = 4_000;
 export const BOT_USERNAME_FALLBACK = "stickler-bot";
 export const DEFAULT_AUTO_ENFORCE_CONFIDENCE_THRESHOLD = 0.8;
 
