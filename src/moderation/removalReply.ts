@@ -39,7 +39,7 @@ export function buildRemovalReply(
     safeJustification,
     ...(referenceMarkdown == null ? [] : ["", `Related: ${referenceMarkdown}`]),
     "",
-    `_If you believe this is a mistake, please [contact the moderators](${contactUrl})._`,
+    `_This decision was made automatically. If you believe it's a mistake, please [contact the moderators](${contactUrl})._`,
   ].join("\n");
 
   return truncate(reply, MAX_REPLY_CHARS);

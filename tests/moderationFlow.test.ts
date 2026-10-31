@@ -75,7 +75,7 @@ test("moderateContribution downgrades evidence-required rule to triage on unclea
         _subredditDescription,
         _currentDateTimeUtc
       ) {
-        return "prompt";
+        return { system: "system", user: "prompt", requiresEvidence: false };
       },
       async getOpenAIResponse(_openaiApiKey, _prompt, _reasonCount, _imageUrls) {
         return decision;
@@ -183,7 +183,7 @@ test("moderateContribution keeps non-evidence-required rules auto-enforceable", 
         _subredditDescription,
         _currentDateTimeUtc
       ) {
-        return "prompt";
+        return { system: "system", user: "prompt", requiresEvidence: false };
       },
       async getOpenAIResponse(_openaiApiKey, _prompt, _reasonCount, _imageUrls) {
         return decision;
@@ -266,7 +266,7 @@ test("moderateContribution passes rule interpretation context into prompt buildi
         receivedRuleInterpretationContext
       ) {
         capturedRuleInterpretationContext = receivedRuleInterpretationContext;
-        return "prompt";
+        return { system: "system", user: "prompt", requiresEvidence: false };
       },
       async getOpenAIResponse(_openaiApiKey, _prompt, _reasonCount, _imageUrls) {
         return {
@@ -300,6 +300,91 @@ test("moderateContribution passes rule interpretation context into prompt buildi
     capturedRuleInterpretationContext,
     ruleInterpretationContext
   );
+});
+
+test("moderateContribution sends uncertain no-rule decisions to triage", async () => {
+  const reason = { id: "r1", title: "No harassment", message: "No personal attacks." };
+  let capturedReason: unknown = "not called";
+  let capturedThreshold: unknown;
+
+  const reddit = {
+    async getAppUser() {
+      return { username: "modbot" };
+    },
+    async getSubredditRemovalReasons() {
+      return [reason];
+    },
+    async submitComment() {
+      throw new Error("submitComment should not be called");
+    },
+    async remove() {
+      throw new Error("remove should not be called");
+    },
+  };
+
+  const result = await moderateContribution(
+    reddit as never,
+    "test-api-key",
+    "post_5",
+    "post",
+    0.9,
+    {
+      async fetchContribution() {
+        return {
+          id: "post_5",
+          authorName: "author",
+          subredditName: "exampleSub",
+          permalink: "/r/exampleSub/comments/post_5",
+          contentForPrompt: "Title: test",
+          imageUrls: [],
+          distinguishedBy: undefined,
+          removed: false,
+        };
+      },
+      async fetchSubredditDescription() {
+        return "Example subreddit";
+      },
+      buildLLMPrompt() {
+        return { system: "system", user: "prompt", requiresEvidence: false };
+      },
+      async getOpenAIResponse() {
+        return {
+          removalReasonIndex: null,
+          referenceLinkIndex: null,
+          justification: "Might be an attack, but the target is unclear.",
+          confidence: 0.6,
+          needsHumanReview: true,
+          evidence: {
+            evidenceBasis: "unclear",
+            visibleIdentifierTypes: [],
+            evidenceSummary: "None.",
+          },
+        };
+      },
+      async sendTriageModmail(
+        _reddit,
+        _contribution,
+        _type,
+        receivedReason,
+        _justification,
+        _confidence,
+        threshold
+      ) {
+        capturedReason = receivedReason;
+        capturedThreshold = threshold;
+      },
+      buildRemovalReply() {
+        return "Removal reply";
+      },
+      now() {
+        return "2026-03-18T00:00:00.000Z";
+      },
+    }
+  );
+
+  assert.deepEqual(result, { status: "triaged", removalReasonTitle: "No rule selected" });
+  assert.equal(capturedReason, null);
+  assert.equal(capturedThreshold, 0.9);
 });
 
 test("moderateContribution passes selected reference link into removal reply", async () => {
@@ -356,7 +441,7 @@ test("moderateContribution passes selected reference link into removal reply", a
         return "Example subreddit";
       },
       buildLLMPrompt() {
-        return "prompt";
+        return { system: "system", user: "prompt", requiresEvidence: false };
       },
       async getOpenAIResponse() {
         return {
